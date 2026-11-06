@@ -33,7 +33,7 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libvips", "nodejs", "npm")
     .pip_install(
-        "torch>=2.4", "diffusers>=0.36", "transformers>=4.51", "accelerate", "peft>=0.17",
+        "torch>=2.4", "torchvision", "diffusers>=0.36", "transformers>=4.51", "accelerate", "peft>=0.17",
         "bitsandbytes>=0.45", "safetensors", "sentencepiece", "pyyaml", "numpy", "pillow", "pyvips",
     )
     .env({"HF_HOME": "/hf", "PYTHONUNBUFFERED": "1"})
