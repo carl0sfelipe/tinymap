@@ -87,9 +87,10 @@ class QwenEdit:
     def _decode(self, z: torch.Tensor) -> np.ndarray:
         """Normalized latent (1, C, h, w) -> float RGB HxWx3 in 0..255."""
         vae = self.p.vae
-        mean = torch.tensor(vae.config.latents_mean).view(1, self.C, 1, 1, 1).to(z.device, z.dtype)
-        std = torch.tensor(vae.config.latents_std).view(1, self.C, 1, 1, 1).to(z.device, z.dtype)
-        x = vae.decode(z.unsqueeze(2).to(DTYPE) * std + mean, return_dict=False)[0][:, :, 0]
+        mean = torch.tensor(vae.config.latents_mean).view(1, self.C, 1, 1, 1).to(z.device, torch.float32)
+        std = torch.tensor(vae.config.latents_std).view(1, self.C, 1, 1, 1).to(z.device, torch.float32)
+        # z chega em float32 do loop do joint(); a conta em float e o VAE em bf16
+        x = vae.decode((z.unsqueeze(2).float() * std + mean).to(DTYPE), return_dict=False)[0][:, :, 0]
         return ((x[0].float().clamp(-1, 1) + 1) * 127.5).permute(1, 2, 0).cpu().numpy()
 
     def _cond(self, crop: Image.Image, prompt: str, negative: str | None):
