@@ -7,6 +7,8 @@ Do seu computador, com o token da Modal configurado (`modal token set ...`):
     modal run tinymap/modal_app.py::generate --region regions/triplice-fronteira.yaml --lora loras/v2.safetensors --gpus 4
     modal run tinymap/modal_app.py::download --region regions/triplice-fronteira.yaml
 
+`--pilot` em qualquer entrypoint usa o recorte piloto (runs/<nome>-pilot, região com pilot=True).
+
 O render (Google 3D Tiles) e os pares de treino continuam sendo feitos antes, localmente:
 `upload` envia a pasta runs/<região> (render, osm, view.json) para um Volume da Modal; cada worker
 de `generate` é um container com GPU que roda exatamente o mesmo `generate.worker` das 3090 —
@@ -43,7 +45,13 @@ GPU = "H100"
 MODEL = "Qwen/Qwen-Image-Edit-2511"
 
 
-def _setup(region_file: str):
+def _run_name(region: str, pilot: bool) -> str:
+    """Nome da pasta em runs/ (e no Volume), igual ao de region.load: <name> ou <name>-pilot."""
+    import yaml
+    return yaml.safe_load(Path(region).read_text())["name"] + ("-pilot" if pilot else "")
+
+
+def _setup(region_file: str, pilot: bool = False):
     """Aponta o tinymap para o Volume (runs/) e carrega a região."""
     import os
     import sys
@@ -52,7 +60,7 @@ def _setup(region_file: str):
     if not os.path.exists("/app/runs"):
         os.symlink("/runs", "/app/runs")
     from tinymap import region as R
-    return R.load(f"/app/{region_file}")
+    return R.load(f"/app/{region_file}", pilot=pilot)
 
 
 def _model(lora_path: str | None):
@@ -71,10 +79,13 @@ def _receive(name: str, files: list[tuple[str, bytes]]):
 
 
 @app.local_entrypoint()
-def upload(region: str = "regions/triplice-fronteira.yaml", loras: str = "loras"):
-    import yaml
-    name = yaml.safe_load(Path(region).read_text())["name"]
+def upload(region: str = "regions/triplice-fronteira.yaml", loras: str = "loras", pilot: bool = False):
+    name = _run_name(region, pilot)
     src = ROOT / "runs" / name
+    # o container não tem o node_modules do render: a projeção lat/lon -> px vai pronta
+    from tinymap import geo
+    from tinymap import region as R
+    geo.load(R.load(region, pilot=pilot))
     pares = [(str(p.relative_to(src)), p) for p in src.rglob("*")
              if p.is_file() and p.relative_to(src).parts[0] in ("render", "osm")]
     pares += [(n, src / n) for n in ("view.json", "region.json", "geo_affine.json") if (src / n).exists()]
@@ -93,8 +104,8 @@ def upload(region: str = "regions/triplice-fronteira.yaml", loras: str = "loras"
 
 
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=24 * 3600)
-def worker(region: str, lora_name: str | None, worker_id: int):
-    run = _setup(region)
+def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = False):
+    run = _setup(region, pilot)
     lora = str(run.dir / "loras" / lora_name) if lora_name else None
     print(f"worker {worker_id} começando")
     model = _model(lora)
@@ -131,9 +142,9 @@ def worker(region: str, lora_name: str | None, worker_id: int):
 
 
 @app.local_entrypoint()
-def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gpus: int = 2):
+def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gpus: int = 2, pilot: bool = False):
     name = Path(lora).name if lora else None
-    calls = [worker.spawn(region, name, i) for i in range(gpus)]
+    calls = [worker.spawn(region, name, i, pilot) for i in range(gpus)]
     print(f"{gpus} workers em {GPU} disparados; acompanhe no painel da Modal")
     for c in calls:
         c.get()
@@ -141,9 +152,10 @@ def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gp
 
 
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=3600)
-def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None) -> tuple[bytes, bytes]:
+def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None,
+         pilot: bool = False) -> tuple[bytes, bytes]:
     from io import BytesIO
-    run = _setup(region)
+    run = _setup(region, pilot)
     from tinymap import geo
     from tinymap.region import render_canvas
     v = run.view
@@ -168,9 +180,10 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
 
 
 @app.local_entrypoint()
-def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913"):
+def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913",
+             pilot: bool = False):
     lat, lon = map(float, at.split(",")) if at else (None, None)
-    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon)
+    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot)
     out = ROOT / "runs" / "modal_try"
     out.mkdir(parents=True, exist_ok=True)
     (out / "render.png").write_bytes(r)
@@ -186,9 +199,8 @@ def _art(name: str) -> list[tuple[str, bytes]]:
 
 
 @app.local_entrypoint()
-def download(region: str = "regions/triplice-fronteira.yaml"):
-    import yaml
-    name = yaml.safe_load(Path(region).read_text())["name"]
+def download(region: str = "regions/triplice-fronteira.yaml", pilot: bool = False):
+    name = _run_name(region, pilot)
     dest = ROOT / "runs" / name / "art"
     dest.mkdir(parents=True, exist_ok=True)
     files = _art.remote(name)
