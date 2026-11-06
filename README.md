@@ -98,6 +98,18 @@ tinymap stitch regions/triplice-fronteira.yaml --art       # prévia do que já 
 tinymap unlock regions/triplice-fronteira.yaml             # se um worker morreu no meio
 ```
 
+**6b. Ou nas GPUs da Modal** (H100, bf16, sem quantização), do seu computador:
+
+```bash
+pip install -e ".[modal]" && modal token set --token-id ... --token-secret ...
+modal run tinymap/modal_app.py::upload   --region regions/triplice-fronteira.yaml   # render + osm + loras/
+modal run tinymap/modal_app.py::try_lora --lora loras/v2.safetensors              # um bloco de teste
+modal run tinymap/modal_app.py::generate --lora loras/v2.safetensors --gpus 4
+modal run tinymap/modal_app.py::download                                          # arte -> runs/.../art
+```
+
+Os workers da Modal usam os mesmos lock files das 3090, num Volume (`tinymap-runs`).
+
 **7. Site:**
 
 ```bash

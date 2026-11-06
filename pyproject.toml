@@ -12,6 +12,8 @@ dependencies = [
 [project.optional-dependencies]
 # `tinymap bridge`: contagem de veículos nas câmeras da ponte
 bridge = ["ultralytics>=8.3", "opencv-python-headless"]
+# `modal run tinymap/modal_app.py::...`: geração nas GPUs da Modal
+modal = ["modal>=1.0"]
 
 [project.scripts]
 tinymap = "tinymap.cli:main"
