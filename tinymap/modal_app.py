@@ -153,7 +153,8 @@ def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gp
 
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=3600)
 def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None,
-         pilot: bool = False) -> tuple[bytes, bytes]:
+         pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "") -> tuple[bytes, bytes]:
+    import time
     from io import BytesIO
     run = _setup(region, pilot)
     from tinymap import geo
@@ -166,10 +167,15 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
     size = 3072
     x0, y0 = int(x - size / 2) // 16 * 16, int(y - size / 2) // 16 * 16
     render = render_canvas(run).crop((x0, y0, x0 + size, y0 + size))
-    g = run.region["generate"]
+    g, style = run.region["generate"], run.region["style"]
     lora = str(run.dir / "loras" / lora_name) if lora_name else None
-    img = _model(lora).joint(render, run.region["style"]["prompt"], steps=g["steps"],
-                             window=g["window_px"], stride=g["stride_px"])
+    # 0 / "" = o que está no YAML da região
+    steps, true_cfg = steps or g["steps"], true_cfg or g.get("true_cfg", 1.0)
+    model = _model(lora)
+    t0 = time.time()
+    img = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
+                      negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"])
+    print(f"joint: {steps} passos, true_cfg {true_cfg}, {time.time() - t0:.0f} s")
     hf_cache.commit()
     out = []
     for im in (render, img):
@@ -181,13 +187,14 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
 
 @app.local_entrypoint()
 def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913",
-             pilot: bool = False):
+             pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "", tag: str = ""):
+    """steps/true_cfg/prompt sobrescrevem o YAML para comparar; tag entra no nome do arquivo."""
     lat, lon = map(float, at.split(",")) if at else (None, None)
-    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot)
+    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt)
     out = ROOT / "runs" / "modal_try"
     out.mkdir(parents=True, exist_ok=True)
     (out / "render.png").write_bytes(r)
-    (out / f"{Path(lora).stem if lora else 'base'}.png").write_bytes(a)
+    (out / f"{Path(lora).stem if lora else 'base'}{'_' + tag if tag else ''}.png").write_bytes(a)
     print(f"resultado em {out}")
 
 
