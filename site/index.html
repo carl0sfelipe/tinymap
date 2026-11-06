@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tiny Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0e1a22; --panel:rgba(14,26,34,.88); --ink:#f3ead2; --accent:#ffd34e; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font-family:"Pixelify Sans", system-ui, sans-serif; }
+  #map { position:fixed; inset:0; }
+  #map canvas, #map img { image-rendering: pixelated; }
+  header { position:fixed; top:12px; left:12px; right:12px; display:flex; gap:8px; align-items:center; z-index:5; pointer-events:none; }
+  header > * { pointer-events:auto; }
+  h1 { margin:0; padding:6px 12px; background:var(--panel); border:2px solid var(--ink); font-size:20px; letter-spacing:.5px; }
+  #q { flex:1; max-width:320px; padding:8px 10px; background:var(--panel); color:var(--ink); border:2px solid var(--ink); font:inherit; }
+  #results { position:fixed; top:56px; left:12px; width:min(360px, calc(100% - 24px)); max-height:50vh; overflow:auto; background:var(--panel); border:2px solid var(--ink); display:none; z-index:6; }
+  #results button { display:block; width:100%; text-align:left; padding:8px 10px; background:none; border:0; color:var(--ink); font:inherit; cursor:pointer; }
+  #results button:hover, #results button:focus { background:rgba(255,211,78,.18); }
+  #results small { opacity:.6; margin-left:6px; }
+  #toggle { padding:8px 10px; background:var(--panel); color:var(--ink); border:2px solid var(--ink); font:inherit; cursor:pointer; }
+  footer { position:fixed; bottom:8px; right:12px; font-size:12px; opacity:.75; background:var(--panel); padding:4px 8px; z-index:5; }
+  .pin { width:14px; height:14px; background:var(--accent); border:2px solid #000; transform:translate(-50%,-50%) rotate(45deg); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<header>
+  <h1 id="title">Tiny Map</h1>
+  <input id="q" placeholder="Buscar lugar…" autocomplete="off" aria-label="Buscar lugar">
+  <button id="toggle" title="Mostrar fronteiras">Fronteiras</button>
+</header>
+<div id="results" role="listbox"></div>
+<footer>Imagem derivada de Google Photorealistic 3D Tiles · Dados © OpenStreetMap contributors</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/5.0.1/openseadragon.min.js"></script>
+<script>
+(async () => {
+  const cfg = await (await fetch("config.json")).json();
+  const meta = await (await fetch(cfg.map)).json();
+  document.title = meta.title;
+  document.getElementById("title").textContent = meta.title;
+  const viewer = OpenSeadragon({
+    id: "map", tileSources: meta.dzi, prefixUrl: "", showNavigationControl: false,
+    maxZoomPixelRatio: 4, minZoomImageRatio: 0.6, visibilityRatio: 0.6, imageSmoothingEnabled: false,
+    drawer: "canvas", immediateRender: true, animationTime: 0.6,
+  });
+  const W = meta.width;
+  const toVp = (x, y) => new OpenSeadragon.Point(x / W, y / W);
+
+  // borders as an SVG overlay in image coordinates
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${meta.width} ${meta.height}`);
+  svg.style.cssText = "width:100%;height:100%;pointer-events:none;display:none";
+  for (const line of meta.borders) {
+    const pl = document.createElementNS(svgNS, "polyline");
+    pl.setAttribute("points", line.map((p) => p.join(",")).join(" "));
+    pl.setAttribute("fill", "none"); pl.setAttribute("stroke", "#ffd34e");
+    pl.setAttribute("stroke-width", "14"); pl.setAttribute("stroke-dasharray", "40 28");
+    svg.appendChild(pl);
+  }
+  viewer.addHandler("open", () => viewer.addOverlay({ element: svg, location: new OpenSeadragon.Rect(0, 0, 1, meta.height / W) }));
+  document.getElementById("toggle").onclick = () => { svg.style.display = svg.style.display === "none" ? "block" : "none"; };
+
+  // search
+  const q = document.getElementById("q"), res = document.getElementById("results");
+  const norm = (s) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  let pin;
+  q.addEventListener("input", () => {
+    const t = norm(q.value.trim());
+    res.innerHTML = "";
+    if (!t) { res.style.display = "none"; return; }
+    const hits = meta.places.filter((p) => norm(p.n).includes(t)).slice(0, 12);
+    for (const p of hits) {
+      const b = document.createElement("button");
+      b.innerHTML = `${p.n}<small>${p.k ?? ""}</small>`;
+      b.onclick = () => {
+        viewer.viewport.panTo(toVp(p.x, p.y)); viewer.viewport.zoomTo(viewer.viewport.imageToViewportZoom(1.5));
+        if (pin) viewer.removeOverlay(pin);
+        pin = document.createElement("div"); pin.className = "pin";
+        viewer.addOverlay({ element: pin, location: toVp(p.x, p.y) });
+        res.style.display = "none"; q.value = p.n;
+      };
+      res.appendChild(b);
+    }
+    res.style.display = hits.length ? "block" : "none";
+  });
+
+  // shareable position in the URL hash: #x,y,zoom (image px)
+  const h = location.hash.slice(1).split(",").map(Number);
+  viewer.addHandler("open", () => {
+    if (h.length === 3 && h.every(Number.isFinite)) {
+      viewer.viewport.panTo(toVp(h[0], h[1]), true); viewer.viewport.zoomTo(viewer.viewport.imageToViewportZoom(h[2]), null, true);
+    }
+  });
+  viewer.addHandler("animation-finish", () => {
+    const c = viewer.viewport.getCenter(), z = viewer.viewport.viewportToImageZoom(viewer.viewport.getZoom());
+    history.replaceState(null, "", `#${Math.round(c.x * W)},${Math.round(c.y * W)},${z.toFixed(2)}`);
+  });
+})();
+</script>
+</body>
+</html>

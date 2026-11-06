@@ -1,0 +1,86 @@
+# Como os Tiny Maps foram feitos (pesquisa, nov/2026)
+
+Fontes: os 15 repositórios públicos clonados, o write-up `tiny.london/how`, o diretório
+`isocities.agenturl.dev` (60 mapas, 39 cidades) e as páginas "how" de cada mapa.
+
+## Os três jeitos de fazer
+
+### 1. IA redesenha um render do Google 3D (o "estilo tiny.london") — o que este repo faz
+
+Pipeline comum a quase todos os mapas virais:
+
+1. **Render**: uma câmera ortográfica única (inclinada 45°, girada 15°) sobre o
+   Google Photorealistic 3D Tiles, via three.js + `3d-tiles-renderer` (ou CesiumJS) dirigido por
+   Playwright. Cada "shot" é um sub-retângulo do frustum, então todos alinham no pixel.
+   Escala típica 0,293 m/px.
+2. **Professor (teacher)**: um modelo grande redesenha ~100 a 2.500 recortes de 1024 px em pixel art
+   (Gemini 3 Pro Image / Nano Banana Pro, GPT Image 2.5). Checagens automáticas rejeitam cópias de
+   foto, água inventada, áreas em branco.
+3. **Aluno (student)**: LoRA num modelo aberto de edição de imagem, treinado nos pares
+   render → pixel art. É ele que pinta a cidade inteira, barato e consistente.
+4. **Montagem sem emenda**: tile a tile com infill (NYC) ou amostragem conjunta MultiDiffusion
+   sobre um latente único (Londres).
+5. **Viewer**: pirâmide Deep Zoom em WebP + OpenSeadragon.
+
+| Mapa | Professor | Aluno | Base | Custo informado |
+|---|---|---|---|---|
+| Isometric NYC (código MIT) | Nano Banana Pro | Qwen-Image-Edit + LoRA "omni infill" (Oxen) | Google 3D | ~US$600 GPU; fine-tune ~US$12 |
+| tiny.london | Gemini 3 Pro Image (7.277 chamadas) | Qwen-Image-2.1-Turbo int8, LoRA rank 32, 8.000 passos | Google 3D | 31 H100-h na rodada final, ~70 no total |
+| Isometric Toronto | Gemini 3 Pro Image | Qwen-Image-2.1-Turbo LoRA | Google 3D | US$91,97 itemizado |
+| Tiny Stockholm | gpt-image-2.5 no centro | Qwen-Image 2.1 com a LoRA do tiny.london | Google 3D | — |
+| isopolis (SF) | Nano Banana | Qwen-Image-Edit-2511 LoRA | Google 3D | ~US$4 imagens + US$10-15 por treino |
+| Tiny Prague (.me) | — | Qwen Image, 8 pares, 400 passos | Google 3D | — |
+| Pixel Berlin | — | Qwen-Image-Edit LoRA | Google 3D | ~US$100 |
+| Isometric Istanbul | GPT Image 2.5 | Qwen-Image-2.1-Turbo | modelo 3D da prefeitura | — |
+| brasilia.isocity | — | Qwen-Image-Edit local numa RTX 5090 | Google 3D | — |
+| HypeSeoul | — | FLUX.2 klein 4B LoRA (33 pares) | 3D próprio | — |
+| Isometric SF (Bay Area) | — | Klein 4B img2img no Modal | — | — |
+| Tiny Utrecht (código) | Gemini 3 Pro Image direto em 84 tiles, sem aluno | — | Google 3D | — |
+| SimLeón (código) | Nano Banana Pro + juiz Gemini Flash + SSIM | — | Google 3D | US$5,75 no piloto |
+| blr_mini (código) | só a etapa de render por enquanto | — | Google 3D ou Cesium ion | — |
+
+Conclusão: **Qwen (Image-Edit ou Image-2.1) + LoRA treinada com pares de um professor grande** é o
+padrão. A brasilia.isocity prova que roda local numa GPU de consumo.
+
+### 2. Cena 3D no navegador com shader de pixel art (sem IA)
+
+Dados abertos de prédios (LoD2, PLATEAU, OSM) renderizados ao vivo em three.js, às vezes com shader
+de dithering. Gira, tem dia/noite, transporte ao vivo. Visual menos "desenhado à mão".
+Código aberto: `isometric-berlin` (MIT), `berlin/london-field-atlas`, `010` Roterdã (MIT),
+`iso-tash` Tashkent (MIT), `isometric-tokyo` (MIT).
+
+### 3. Desenhado em código a partir do OSM (sem IA)
+
+Cada prédio do OpenStreetMap extrudado e pintado em canvas/WebGL com cores de `building:colour`.
+Código aberto: `isometric-london` (MIT), `leuven.social` (MIT), `edirne-isometric` (que acabou
+trocando por imagem aérea do Esri inclinada).
+
+## Repositórios abertos e o que aproveitar
+
+| Repo | Licença | O que tem de útil |
+|---|---|---|
+| cannoneyed/isometric-nyc | MIT | Pipeline completo, app de geração, dataset "omni infill", LoRAs públicas no Oxen |
+| Janjs/tiny-utrecht | sem licença declarada | Render de 120 linhas fiel ao tiny.london, checagens, máscara de água OSM |
+| Rithvik1709/blr_mini | sem licença | Render via Cesium ion (token grátis), pirâmide, busca |
+| enrique-am/simleon | sem licença | Detector de erros + correção de uma caixa só |
+| JustinChavez/sf-isometric-demo | sem licença | Viewer estático de mosaico |
+| Klotzkette/isometric-berlin, joshp123/010, jahongircode/iso-tash, stianfro/isometric-tokyo | MIT | Abordagem 3D |
+| arikhanacademic-cpu/isometric-london, basteau/leuven.social | MIT | Abordagem em código |
+
+Este repo não copia código dos repositórios sem licença; reimplementa as ideias publicadas.
+
+## Lições que entraram no tinymap
+
+- O prompt diz **como** desenhar, não **o que** (tiny.london).
+- O professor copia a foto em áreas densas; um quarto de 512 px ampliado 2× é redesenhado melhor.
+- Água inventada é o erro nº 1: projetar a água do OSM com a mesma câmera, citar no prompt e checar.
+- Emendas somem com amostragem conjunta (janelas 1024, passo 768, grade deslocada a cada passo,
+  peso em tenda) e com "pinning" das bordas já pintadas.
+- Blocos em quatro fases por paridade permitem várias GPUs sem que blocos vizinhos rodem juntos.
+- Pirâmide com o nível mais nítido em WebP sem perdas preserva o pixel.
+
+## Licenças a observar
+
+Imagens derivadas do Google Photorealistic 3D Tiles têm atribuição obrigatória e termos de uso do
+Google Maps Platform. O Qwen-Image-2.1-Turbo foi publicado com licença de pesquisa/avaliação;
+Qwen-Image-Edit-2511 é Apache-2.0. Confira antes de qualquer uso comercial.

@@ -1,0 +1,54 @@
+# Tríplice Fronteira: Foz do Iguaçu (BR), Ciudad del Este (PY), Puerto Iguazú (AR)
+name: triplice-fronteira
+title: Tiny Tríplice
+
+# Centro da câmera: Marco das Três Fronteiras / foz do Iguaçu no Paraná
+center: { lat: -25.560, lon: -54.585 }
+
+# Área do mapa (graus). Cobre centro de Foz, Ponte da Amizade, microcentro de CDE,
+# Ponte Tancredo Neves e Puerto Iguazú. ~9 x 14,5 km ≈ 130 km² ≈ 1,5 gigapixel a 0,293 m/px.
+bbox: { south: -25.625, west: -54.625, north: -25.495, east: -54.535 }
+
+# Recorte pequeno para o piloto (render + teste de estilo antes da cidade toda).
+pilot_bbox: { south: -25.600, west: -54.600, north: -25.585, east: -54.580 }
+
+camera:
+  azimuth_deg: -15       # mesmo ângulo de isometric.nyc / tiny.london
+  elevation_deg: -45
+  # Altura elipsoidal do chão no centro. Foz fica ~170-200 m acima do mar e a ondulação
+  # do geoide aqui é pequena. Confira com `tinymap probe` e ajuste se o mapa "deslizar".
+  target_height_m: 185
+  meters_per_px: 0.293   # 0.4 corta o custo pela metade com casas ainda legíveis
+  shot_px: 2048
+
+# Altura elipsoidal da lâmina d'água dos rios Paraná e Iguaçu (projeção da máscara OSM).
+water_height_m: 110
+
+# Pontos que sempre entram no conjunto de treino (o modelo precisa vê-los).
+landmarks:
+  - { name: "Marco das Três Fronteiras", lat: -25.5925, lon: -54.5913 }
+  - { name: "Ponte da Amizade", lat: -25.5096, lon: -54.6011 }
+  - { name: "Ponte Tancredo Neves", lat: -25.5880, lon: -54.5946 }
+  - { name: "Hito Tres Fronteras", lat: -25.5963, lon: -54.5885 }
+  - { name: "Catedral de Foz", lat: -25.5427, lon: -54.5822 }
+  - { name: "Microcentro de Ciudad del Este", lat: -25.5097, lon: -54.6110 }
+  - { name: "Mesquita Omar Ibn Al-Khattab", lat: -25.5449, lon: -54.5708 }
+
+style:
+  # O prompt diz COMO desenhar, não O QUE desenhar (lição do tiny.london).
+  prompt: >-
+    Redraw this orthographic 3D city render as crisp isometric pixel art in the style of
+    a late-90s city-builder game (SimCity 2000 era). Keep every building, street, tree and
+    river exactly where it is, with the same shape and height. Flat fills, hard 1-pixel
+    edges, a limited palette, clean dark outlines on rooftops, no photographic texture,
+    no blur, no text, no labels.
+  negative: "photo, blurry, noise, text, watermark, labels, people close-up"
+
+generate:
+  window_px: 1024
+  stride_px: 768
+  block_px: 6144     # 24 GB: 6144 é confortável; o tamanho só afeta o cache em CPU
+  margin_px: 1024    # contexto já pintado dos vizinhos, mantido fixo (pinning)
+  steps: 20
+  true_cfg: 1.0      # >1 dobra o custo; use 4.0 só se o estilo sair fraco
+  seed: 1234
