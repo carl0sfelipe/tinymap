@@ -2,6 +2,12 @@
 name: triplice-fronteira
 title: Tiny Tríplice
 
+# Fonte da cidade 3D:
+#   osm    -> maquete dos prédios do OpenStreetMap (`tinymap osm3d`). Sem chave, funciona hoje.
+#   google -> Google Photorealistic 3D Tiles (precisa de chave; sem malha boa nesta região).
+# Áreas mapeadas com drone entram depois como tileset próprio.
+source: osm
+
 # Centro da câmera: Marco das Três Fronteiras / foz do Iguaçu no Paraná
 center: { lat: -25.560, lon: -54.585 }
 

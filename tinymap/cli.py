@@ -4,6 +4,7 @@
   tinymap probe    <region.yaml> [--pilot]        1 km renders at each landmark: is Google 3D good here?
   tinymap render   <region.yaml> [--workers 4]    Google Photorealistic 3D Tiles -> render shots
   tinymap osm      <region.yaml>                  water / places / borders from OpenStreetMap
+  tinymap osm3d    <region.yaml> [--pilot]        maquete 3D do OSM (para source: osm)
   tinymap stitch   <region.yaml> [--scale 0.125]  small preview of render (or --art) for checking
   tinymap teacher  <region.yaml> --backend qwen|gemini|folder --out pairs_v1 [--n 120] [--lora ...]
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
@@ -75,6 +76,9 @@ def main() -> None:
     elif a.cmd == "osm":
         from .osm import fetch
         fetch(run)
+    elif a.cmd == "osm3d":
+        from .osm import fetch_scene
+        fetch_scene(run, pilot=a.pilot)
     elif a.cmd == "stitch":
         from PIL import Image
         v = run.view

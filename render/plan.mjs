@@ -16,6 +16,7 @@ const view = {
   azimuth_deg: cam.azimuth_deg, elevation_deg: cam.elevation_deg,
   target_height_m: cam.target_height_m, meters_per_px: cam.meters_per_px,
   shot_px: cam.shot_px, error_target: cam.error_target ?? 2,
+  source: region.source ?? "google",
 };
 const shot = view.shot_px;
 const toPx = projector(view, [0, 0]); // camera-centred pixels

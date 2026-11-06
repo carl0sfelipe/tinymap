@@ -8,6 +8,7 @@ import {
 import { Scene, WebGLRenderer, OrthographicCamera } from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { cameraWorld } from "./camera.mjs";
+import { buildOsmScene } from "./osmscene.mjs";
 
 const view = window.VIEW;
 const auth = window.AUTH ?? {};
@@ -40,36 +41,50 @@ window.setShot = ({ col, row, box }) => {
   frames = 0;
 };
 
-const tiles = new TilesRenderer();
-if (auth.google) {
+// Fonte da cidade: Google 3D Tiles (padrão) ou maquete OSM (view.source = "osm"), injetada por
+// capture.mjs em /scene.json. Com OSM não há streaming: a cena está pronta no primeiro quadro.
+const useOsm = view.source === "osm";
+let tiles = null;
+if (useOsm) {
+  const data = await (await fetch("/scene.json")).json();
+  const { group, lights } = buildOsmScene(view, data);
+  scene.add(group, ...lights);
+} else {
+  tiles = new TilesRenderer();
+}
+if (useOsm) {
+  // nada a configurar
+} else if (auth.google) {
   tiles.registerPlugin(new GoogleCloudAuthPlugin({ apiToken: auth.google, autoRefreshToken: true }));
 } else if (auth.ion) {
   // Google Photorealistic 3D Tiles through Cesium ion (asset 2275207)
   tiles.registerPlugin(new CesiumIonAuthPlugin({ apiToken: auth.ion, assetId: "2275207", autoRefreshToken: true }));
 } else {
-  throw new Error("set GOOGLE_TILES_API_KEY or CESIUM_ION_TOKEN in .env");
+  throw new Error("set GOOGLE_TILES_API_KEY or CESIUM_ION_TOKEN in .env, or use source: osm");
 }
-tiles.registerPlugin(new TileCompressionPlugin());
-tiles.registerPlugin(new GLTFExtensionsPlugin({
-  dracoLoader: new DRACOLoader().setDecoderPath("https://unpkg.com/three@0.153.0/examples/jsm/libs/draco/gltf/"),
-}));
-tiles.errorTarget = view.error_target ?? 2;
-tiles.lruCache.maxSize = 40000;
-tiles.lruCache.minSize = 20000;
-if ("maxBytesSize" in tiles.lruCache) tiles.lruCache.maxBytesSize = 4e9;
-tiles.setCamera(camera);
-tiles.setResolution(camera, shot, shot);
-scene.add(tiles.group);
+if (tiles) {
+  tiles.registerPlugin(new TileCompressionPlugin());
+  tiles.registerPlugin(new GLTFExtensionsPlugin({
+    dracoLoader: new DRACOLoader().setDecoderPath("https://unpkg.com/three@0.153.0/examples/jsm/libs/draco/gltf/"),
+  }));
+  tiles.errorTarget = view.error_target ?? 2;
+  tiles.lruCache.maxSize = 40000;
+  tiles.lruCache.minSize = 20000;
+  if ("maxBytesSize" in tiles.lruCache) tiles.lruCache.maxBytesSize = 4e9;
+  tiles.setCamera(camera);
+  tiles.setResolution(camera, shot, shot);
+  scene.add(tiles.group);
+}
 
 window.TILES_LOADED = false;
 let stableSince = 0;
 let frames = 0;
 function animate() {
   requestAnimationFrame(animate);
-  tiles.update();
+  tiles?.update();
   renderer.render(scene, camera);
   frames++;
-  const busy = tiles.stats.downloading + tiles.stats.parsing + (tiles.stats.queued ?? 0);
+  const busy = tiles ? tiles.stats.downloading + tiles.stats.parsing + (tiles.stats.queued ?? 0) : 0;
   if (busy === 0 && frames > 60) {
     stableSince ||= performance.now();
     window.TILES_LOADED = performance.now() - stableSince > 2000;

@@ -38,6 +38,23 @@ git clone https://github.com/ostris/ai-toolkit ../ai-toolkit   # para treinar a 
 O Chromium headless renderiza com a GPU (`--use-angle=vulkan`). Se a máquina não tiver display,
 rode com `xvfb-run -a tinymap render …`.
 
+## Sem Google 3D? Maquete do OpenStreetMap
+
+A Tríplice Fronteira não tem malha 3D boa no Google, então a região usa `source: osm`: os prédios
+do OpenStreetMap são levantados pela altura (`height`, `building:levels` ou um padrão por tipo),
+com ruas, rios e áreas verdes em cores chapadas. Fica uma maquete limpa, e a IA redesenha em pixel
+art do mesmo jeito. Câmera, projeção e mapa continuam idênticos. Não precisa de chave nenhuma.
+
+```bash
+tinymap plan   regions/triplice-fronteira.yaml --pilot
+tinymap osm3d  regions/triplice-fronteira.yaml --pilot     # baixa prédios/ruas/rios do OSM
+tinymap render regions/triplice-fronteira.yaml --pilot     # CHROME_PATH=/usr/bin/google-chrome se o Playwright não baixar o Chromium
+```
+
+Quanto mais prédios tiverem `building:levels` no OSM, melhor fica a maquete; dá para completar
+você mesmo no openstreetmap.org (o `osm3d` informa quantos já têm altura). Áreas filmadas com
+drone (fotogrametria) entram depois como tileset próprio, por cima da maquete.
+
 ## Passo a passo para a Tríplice Fronteira
 
 **1. Piloto pequeno (≈1,5 × 1,7 km no Marco das Três Fronteiras).** Valida a câmera e a cobertura 3D.

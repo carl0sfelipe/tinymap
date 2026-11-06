@@ -15,13 +15,30 @@ const view = JSON.parse(readFileSync(`${run}/view.json`));
 loadEnv(`${run}/../../.env`);
 loadEnv(".env");
 loadEnv("../.env");
+// maquete OSM (tinymap osm3d) quando view.source = "osm": servida em /scene.json pelo próprio
+// servidor do vite (pode ter centenas de MB; não cabe no addInitScript)
+const scenePath = `${run}/osm/scene_ll.json`;
+if (view.source === "osm" && !existsSync(scenePath)) throw new Error(`rode antes: tinymap osm3d (falta ${scenePath})`);
 const auth = { google: process.env.GOOGLE_TILES_API_KEY || undefined, ion: process.env.CESIUM_ION_TOKEN || undefined };
 
 const root = new URL(".", import.meta.url).pathname;
 const port = 5175 + Math.floor(Math.random() * 500);
-const server = await createServer({ root, server: { port } });
+const server = await createServer({
+  root, server: { port },
+  plugins: [{
+    name: "tinymap-scene",
+    configureServer(srv) {
+      srv.middlewares.use("/scene.json", (_req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        res.end(readFileSync(scenePath));
+      });
+    },
+  }],
+});
 await server.listen();
 const browser = await chromium.launch({
+  // CHROME_PATH usa um Chrome já instalado (útil onde o download do Chromium do Playwright é bloqueado)
+  ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
   args: ["--enable-gpu", "--ignore-gpu-blocklist", "--use-gl=angle", "--use-angle=vulkan", "--enable-unsafe-swiftshader"],
 });
 

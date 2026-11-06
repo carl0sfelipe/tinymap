@@ -141,3 +141,97 @@ def water_sentence(mask: Image.Image) -> str:
              if a[r * h // 3:(r + 1) * h // 3, c * w // 3:(c + 1) * w // 3].mean() > 0.01]
     return (f"WATER IN THIS VIEW: about {share * 100:.0f}% of the view, in the {', '.join(where)}: only the river "
             "the render shows there. Nothing else uses the water colour.")
+
+
+# ── Maquete 3D a partir do OSM (onde não há Google 3D Tiles) ─────────────────
+
+# Altura padrão por tipo quando o OSM não tem height nem building:levels. Calibrado "a olho"
+# para a fronteira: casas térreas e sobrados em Foz, galerias de 3-5 andares no microcentro de CDE.
+ALTURA_TIPO = {
+    "house": 6, "detached": 6, "residential": 7, "semidetached_house": 6, "terrace": 7, "bungalow": 4,
+    "apartments": 18, "hotel": 24, "commercial": 12, "retail": 9, "office": 18, "industrial": 9,
+    "warehouse": 9, "church": 14, "cathedral": 30, "mosque": 14, "school": 8, "university": 12,
+    "hospital": 15, "garage": 3, "garages": 3, "shed": 3, "roof": 4, "kiosk": 3, "service": 4,
+}
+LARGURA_VIA = {
+    "motorway": 18, "trunk": 16, "primary": 14, "secondary": 11, "tertiary": 9, "residential": 7,
+    "unclassified": 7, "living_street": 6, "service": 4, "pedestrian": 6, "footway": 2, "path": 1.5,
+    "cycleway": 2, "track": 3, "motorway_link": 8, "trunk_link": 8, "primary_link": 8,
+}
+VERDE = {"park": "green", "grass": "green", "garden": "green", "recreation_ground": "green",
+         "pitch": "green", "golf_course": "green", "meadow": "green", "cemetery": "green",
+         "forest": "forest", "wood": "forest", "scrub": "forest", "nature_reserve": "forest",
+         "sand": "sand", "beach": "sand"}
+
+
+def _num(v: str | None) -> float | None:
+    if not v:
+        return None
+    try:
+        return float(v.replace(",", ".").split()[0].rstrip("m"))
+    except ValueError:
+        return None
+
+
+def altura_predio(tags: dict, rng_seed: int = 0) -> tuple[float, float]:
+    """(altura, min_height) em metros a partir das tags OSM."""
+    h = _num(tags.get("height"))
+    if h is None and (lv := _num(tags.get("building:levels"))) is not None:
+        h = lv * 3.2 + (_num(tags.get("roof:levels")) or 0) * 2
+    if h is None:
+        h = ALTURA_TIPO.get(tags.get("building", ""), 7.0)
+        h *= 0.85 + (rng_seed % 31) / 100  # variação leve para a maquete não ficar uniforme
+    mh = _num(tags.get("min_height"))
+    if mh is None and (ml := _num(tags.get("building:min_level"))) is not None:
+        mh = ml * 3.2
+    return round(h, 1), round(mh or 0.0, 1)
+
+
+def fetch_scene(run: Run, pilot: bool = False) -> dict:
+    b = run.region["pilot_bbox"] if pilot and run.region.get("pilot_bbox") else run.region["bbox"]
+    pad = 0.003
+    bbox = f"{b['south'] - pad},{b['west'] - pad},{b['north'] + pad},{b['east'] + pad}"
+    data = _overpass(f"""[out:json][timeout:600][maxsize:1073741824];
+      (way["building"]({bbox}); relation["building"]["type"="multipolygon"]({bbox});
+       way["building:part"]({bbox});
+       way["highway"]({bbox}); way["railway"="rail"]({bbox});
+       nwr["natural"~"water|wood|scrub|sand|beach"]({bbox}); nwr["waterway"="riverbank"]({bbox});
+       nwr["leisure"~"park|garden|pitch|golf_course|nature_reserve|recreation_ground"]({bbox});
+       nwr["landuse"~"grass|forest|meadow|cemetery|recreation_ground"]({bbox}););
+      out geom;""")
+    buildings, roads, green, water = [], [], [], []
+    for el in data["elements"]:
+        t = el.get("tags", {})
+        if el["type"] == "node":
+            continue
+        if "building" in t or "building:part" in t:
+            outer, inner = _rings_of(el)
+            if not outer:
+                continue
+            h, mh = altura_predio(t, el["id"])
+            buildings.append({"id": f"{el['type'][0]}{el['id']}", "rings": outer, "h": h, "min_h": mh,
+                              "colour": t.get("building:colour"), "roof_colour": t.get("roof:colour")})
+        elif "highway" in t and el["type"] == "way":
+            hw = t["highway"]
+            if hw in ("proposed", "construction", "steps", "elevator", "corridor"):
+                continue
+            w = _num(t.get("width")) or LARGURA_VIA.get(hw, 5)
+            roads.append({"line": [[p["lat"], p["lon"]] for p in el["geometry"]], "w": w,
+                          "major": hw in ("motorway", "trunk", "primary", "secondary"), "kind": "road"})
+        elif t.get("railway") == "rail" and el["type"] == "way":
+            roads.append({"line": [[p["lat"], p["lon"]] for p in el["geometry"]], "w": 3, "kind": "rail"})
+        else:
+            outer, inner = _rings_of(el)
+            if not outer:
+                continue
+            kind = t.get("natural") or t.get("leisure") or t.get("landuse") or t.get("waterway")
+            if kind in ("water", "riverbank") or t.get("waterway") == "riverbank":
+                water.append({"rings": outer, "holes": inner})
+            elif kind in VERDE:
+                green.append({"rings": outer, "holes": inner, "kind": VERDE[kind]})
+    scene = {"bbox": b, "buildings": buildings, "roads": roads, "green": green, "water": water}
+    json.dump(scene, open(run.path("osm", "scene_ll.json"), "w"))
+    com_altura = sum(1 for el in data["elements"] if el.get("tags", {}).get("height") or el.get("tags", {}).get("building:levels"))
+    print(f"prédios {len(buildings)} (com altura/andares no OSM: {com_altura}), vias {len(roads)}, "
+          f"verde {len(green)}, água {len(water)}")
+    return scene
