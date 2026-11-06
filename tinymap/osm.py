@@ -4,6 +4,7 @@ places (viewer search) and national borders (viewer overlay)."""
 from __future__ import annotations
 
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -13,19 +14,25 @@ from PIL import Image, ImageDraw
 
 from .region import Run, node
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+# Servidores tentados em ordem (o principal costuma dar 504 em hora de pico).
+# TINYMAP_OVERPASS=url1,url2 troca a lista; TINYMAP_OVERPASS_TIMEOUT é o teto por pedido, em segundos.
+OVERPASS = os.environ.get("TINYMAP_OVERPASS", "https://overpass-api.de/api/interpreter,"
+                          "https://overpass.kumi.systems/api/interpreter,"
+                          "https://overpass.private.coffee/api/interpreter").split(",")
 
 
 def _overpass(q: str) -> dict:
     data = urllib.parse.urlencode({"data": q}).encode()
-    for attempt in range(4):
-        try:
-            req = urllib.request.Request(OVERPASS, data=data, headers={"User-Agent": "tinymap/0.1"})
-            with urllib.request.urlopen(req, timeout=300) as r:
-                return json.load(r)
-        except Exception as e:  # noqa: BLE001
-            print(f"overpass failed ({e}); retrying")
-            time.sleep(10 * (attempt + 1))
+    teto = float(os.environ.get("TINYMAP_OVERPASS_TIMEOUT", 180))
+    for attempt in range(2):
+        for url in OVERPASS:
+            try:
+                req = urllib.request.Request(url, data=data, headers={"User-Agent": "tinymap/0.1"})
+                with urllib.request.urlopen(req, timeout=teto) as r:
+                    return json.load(r)
+            except Exception as e:  # noqa: BLE001
+                print(f"overpass {urllib.parse.urlparse(url).netloc} failed ({e})")
+        time.sleep(15 * (attempt + 1))
     raise RuntimeError("overpass unreachable")
 
 
