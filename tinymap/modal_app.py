@@ -153,7 +153,8 @@ def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gp
 
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=3600)
 def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None,
-         pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "") -> tuple[bytes, bytes]:
+         pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "",
+         single: str = "") -> tuple[bytes, bytes]:
     import time
     from io import BytesIO
     run = _setup(region, pilot)
@@ -173,9 +174,23 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
     steps, true_cfg = steps or g["steps"], true_cfg or g.get("true_cfg", 1.0)
     model = _model(lora)
     t0 = time.time()
-    img = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
+    if single:
+        # diagnóstico: o mesmo recorte de 1024 px pelo pipeline oficial (esquerda) e pelo joint() de
+        # uma janela só (direita). Se só o joint() errar, o bug é dele; se os dois errarem, é modelo/prompt.
+        from PIL import Image
+        sx, sy = map(int, single.split(","))
+        render = render.crop((sx, sy, sx + g["window_px"], sy + g["window_px"]))
+        neg = style.get("negative") if true_cfg > 1 else None
+        a = model.edit(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg, negative=neg)
+        b = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
+                        negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"])
+        img = Image.new("RGB", (2 * render.width, render.height))
+        img.paste(a, (0, 0))
+        img.paste(b, (render.width, 0))
+    else:
+        img = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
                       negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"])
-    print(f"joint: {steps} passos, true_cfg {true_cfg}, {time.time() - t0:.0f} s")
+    print(f"{'edit+joint' if single else 'joint'}: {steps} passos, true_cfg {true_cfg}, {time.time() - t0:.0f} s")
     hf_cache.commit()
     out = []
     for im in (render, img):
@@ -187,13 +202,15 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
 
 @app.local_entrypoint()
 def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913",
-             pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "", tag: str = ""):
+             pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "", tag: str = "",
+             single: str = ""):
     """steps/true_cfg/prompt sobrescrevem o YAML para comparar; tag entra no nome do arquivo."""
     lat, lon = map(float, at.split(",")) if at else (None, None)
-    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt)
+    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt, single)
     out = ROOT / "runs" / "modal_try"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "render.png").write_bytes(r)
+    # no diagnóstico --single o render é só o recorte de 1024 px
+    (out / (f"render_{tag or 'single'}.png" if single else "render.png")).write_bytes(r)
     (out / f"{Path(lora).stem if lora else 'base'}{'_' + tag if tag else ''}.png").write_bytes(a)
     print(f"resultado em {out}")
 
