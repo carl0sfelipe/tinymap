@@ -28,6 +28,8 @@ function hash(s) {
   return h >>> 0;
 }
 
+export const GROUND = COL.ground;
+
 export function buildOsmScene(view, data) {
   const ground = view.target_height_m;
   const enu = new Matrix4();
@@ -119,9 +121,12 @@ export function buildOsmScene(view, data) {
     }
   }
 
-  // chão: o retângulo da área inteira, um pouco abaixo de tudo
+  // chão: o retângulo da área com 0,01° (~1 km) de folga, um pouco abaixo de tudo. Sem a folga, os
+  // shots da borda mostram o fundo, e fundo azul vira "rio" no redesenho da IA.
   if (data.bbox) {
-    const { south: s, west: w, north: n, east: e } = data.bbox;
+    const pad = 0.01;
+    const { south: s0, west: w0, north: n0, east: e0 } = data.bbox;
+    const [s, w, n, e] = [s0 - pad, w0 - pad, n0 + pad, e0 + pad];
     flat([[[s, w], [s, e], [n, e], [n, w], [s, w]]], [], -0.3, COL.ground);
   }
   for (const f of data.green ?? []) flat(f.rings, f.holes, -0.2, COL[f.kind] ?? COL.green);

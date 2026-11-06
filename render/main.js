@@ -8,7 +8,7 @@ import {
 import { Scene, WebGLRenderer, OrthographicCamera } from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { cameraWorld } from "./camera.mjs";
-import { buildOsmScene } from "./osmscene.mjs";
+import { buildOsmScene, GROUND } from "./osmscene.mjs";
 
 const view = window.VIEW;
 const auth = window.AUTH ?? {};
@@ -49,6 +49,7 @@ if (useOsm) {
   const data = await (await fetch("/scene.json")).json();
   const { group, lights } = buildOsmScene(view, data);
   scene.add(group, ...lights);
+  renderer.setClearColor(GROUND); // o que sobrar fora do chão é terra, nunca céu/água
 } else {
   tiles = new TilesRenderer();
 }
