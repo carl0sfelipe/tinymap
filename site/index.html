@@ -22,6 +22,20 @@
   #toggle { padding:8px 10px; background:var(--panel); color:var(--ink); border:2px solid var(--ink); font:inherit; cursor:pointer; }
   footer { position:fixed; bottom:8px; right:12px; font-size:12px; opacity:.75; background:var(--panel); padding:4px 8px; z-index:5; }
   .pin { width:14px; height:14px; background:var(--accent); border:2px solid #000; transform:translate(-50%,-50%) rotate(45deg); }
+  .loja { width:16px; height:16px; background:#fff; border:3px solid #0e1a22; transform:translate(-50%,-100%) rotate(45deg); cursor:pointer; padding:0; }
+  .loja.verificado { background:#4ade80; }
+  .loja.patrocinado { width:24px; height:24px; background:var(--accent); animation:pulse 1.6s steps(2) infinite; }
+  .area { width:44px; height:22px; border:3px dashed var(--accent); background:rgba(255,211,78,.15); transform:translate(-50%,-50%); cursor:pointer; padding:0; }
+  @keyframes pulse { 50% { transform:translate(-50%,-100%) rotate(45deg) scale(1.2); } }
+  #card { position:fixed; left:12px; right:12px; bottom:40px; max-width:380px; background:var(--panel); border:2px solid var(--ink); padding:14px; z-index:7; display:none; }
+  #card h2 { margin:0 0 4px; font-size:20px; }
+  #card .tag { font-size:12px; color:var(--accent); }
+  #card .acoes { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  #card a { padding:8px 12px; border:2px solid var(--ink); color:var(--ink); text-decoration:none; }
+  #card a.wa { background:#25d366; color:#06240f; border-color:#06240f; }
+  #card button.fechar { position:absolute; top:6px; right:8px; background:none; border:0; color:var(--ink); font:inherit; font-size:20px; cursor:pointer; }
+  #ponte { position:fixed; top:64px; right:12px; background:var(--panel); border:2px solid var(--ink); padding:8px 10px; z-index:5; font-size:14px; cursor:pointer; display:none; }
+  #ponte b { color:var(--accent); }
 </style>
 </head>
 <body>
@@ -32,6 +46,8 @@
   <button id="toggle" title="Mostrar fronteiras">Fronteiras</button>
 </header>
 <div id="results" role="listbox"></div>
+<div id="ponte" role="button" title="Ir para a ponte"></div>
+<div id="card" role="dialog" aria-live="polite"></div>
 <footer>Imagem derivada de Google Photorealistic 3D Tiles · Dados © OpenStreetMap contributors</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/5.0.1/openseadragon.min.js"></script>
 <script>
@@ -62,6 +78,106 @@
   }
   viewer.addHandler("open", () => viewer.addOverlay({ element: svg, location: new OpenSeadragon.Rect(0, 0, 1, meta.height / W) }));
   document.getElementById("toggle").onclick = () => { svg.style.display = svg.style.display === "none" ? "block" : "none"; };
+
+  // ── projeção lat/lon -> pixel (mesmo polinômio de tinymap/geo.py) ──
+  const toPx = (lat, lon) => {
+    const g = meta.geo, dl = lat - g.origin[0], dn = lon - g.origin[1];
+    const t = [1, dl, dn, dl * dl, dl * dn, dn * dn];
+    return g.a.map((row) => row.reduce((s, c, i) => s + c * t[i], 0));
+  };
+  const SITE = "https://now.services";
+  const card = document.getElementById("card");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ── lojas e imóveis do now.services (FR-49: o JSON não tem telefone) ──
+  async function carregarPinos() {
+    if (!meta.live?.pinos) return;
+    let dados;
+    try { dados = await (await fetch(meta.live.pinos)).json(); } catch { return; }
+    // patrocinados por cima, para o rótulo nunca ficar escondido
+    const pinos = [...dados.pinos].sort((a, b) => a.patrocinado - b.patrocinado);
+    for (const p of pinos) {
+      const [x, y] = toPx(p.lat, p.lon);
+      const el = document.createElement("button");
+      el.className = p.precisao === "EXATA"
+        ? `loja${p.verificado ? " verificado" : ""}${p.patrocinado ? " patrocinado" : ""}` : "area";
+      el.setAttribute("aria-label", p.nome);
+      el.onclick = (ev) => { ev.stopPropagation(); abrirCard(p); };
+      new OpenSeadragon.MouseTracker({ element: el, clickHandler: () => abrirCard(p) });
+      viewer.addOverlay({ element: el, location: toVp(x, y) });
+      meta.places.push({ n: p.nome, k: p.categorias[0] ?? "loja", x, y, pino: p });
+    }
+  }
+  function abrirCard(p) {
+    const wa = p.precisao === "EXATA" ? `<a class="wa" href="${SITE}/ir/whatsapp/${encodeURIComponent(p.handle)}?origem=mapa" rel="nofollow">WhatsApp</a>` : "";
+    card.innerHTML = `<button class="fechar" aria-label="Fechar">×</button>
+      <h2>${esc(p.nome)}</h2>
+      ${p.patrocinado ? '<div class="tag">patrocinado</div>' : ""}${p.verificado ? '<div class="tag">✓ verificado</div>' : ""}
+      ${p.localInterno ? `<p>${esc(p.localInterno)}</p>` : ""}
+      ${p.precisao !== "EXATA" ? "<p>Localização aproximada (~150 m). O endereço exato sai no contato.</p>" : ""}
+      <div class="acoes">${wa}<a href="${esc(p.url)}">Ver perfil</a>
+      <a href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}" target="_blank" rel="noopener">Como chegar</a></div>`;
+    card.querySelector(".fechar").onclick = () => (card.style.display = "none");
+    card.style.display = "block";
+    history.replaceState(null, "", `#${p.lat},${p.lon}`);
+  }
+
+  // ── ponte ao vivo: carrinhos proporcionais à contagem real da câmera ──
+  const carros = document.createElementNS(svgNS, "svg");
+  carros.setAttribute("viewBox", `0 0 ${meta.width} ${meta.height}`);
+  carros.style.cssText = "width:100%;height:100%;pointer-events:none";
+  viewer.addHandler("open", () => viewer.addOverlay({ element: carros, location: new OpenSeadragon.Rect(0, 0, 1, meta.height / W) }));
+  const ponteBox = document.getElementById("ponte");
+  let veiculos = [];
+  const CORES = ["#e63946", "#f1faee", "#457b9d", "#ffd166", "#2a9d8f"];
+  async function atualizarPonte() {
+    const b = meta.bridges?.[0];
+    if (!b || !meta.live?.ponte) return;
+    let d;
+    try { d = await (await fetch(meta.live.ponte)).json(); } catch { return; }
+    const mk = (l, de, para, lado) => {
+      if (!l) return [];
+      // um carrinho por veículo detectado na faixa, até 60 por sentido; moto menor
+      const n = Math.min(60, (l.carros ?? 0) + (l.onibus ?? 0) + (l.caminhoes ?? 0));
+      const m = Math.min(30, l.motos ?? 0);
+      const lento = Math.max(0.15, 1 - (l.minutosCarro ?? 0) / 90);
+      return [...Array(n + m)].map((_, i) => ({ de, para, lado, t: Math.random(), moto: i >= n,
+        v: (i >= n ? 0.006 : 0.003) * lento, cor: CORES[i % CORES.length] }));
+    };
+    veiculos = [...mk(d.brParaPy, b.br, b.py, -1), ...mk(d.pyParaBr, b.py, b.br, 1)];
+    const ida = d.brParaPy, volta = d.pyParaBr;
+    if (ida || volta) {
+      ponteBox.innerHTML = `${esc(b.name)}<br>BR→PY <b>${ida?.minutosCarro ?? "—"} min</b> · moto ${ida?.minutosMoto ?? "—"} · a pé ${ida?.minutosPe ?? "—"}<br>PY→BR <b>${volta?.minutosCarro ?? "—"} min</b>`;
+      ponteBox.style.display = "block";
+    }
+  }
+  ponteBox.onclick = () => irPara(meta.bridges[0].br[0] * 0.5 + meta.bridges[0].py[0] * 0.5, meta.bridges[0].br[1] * 0.5 + meta.bridges[0].py[1] * 0.5, 0.6);
+  function animar() {
+    carros.innerHTML = "";
+    for (const c of veiculos) {
+      c.t = (c.t + c.v) % 1;
+      const x = c.de[0] + (c.para[0] - c.de[0]) * c.t, y = c.de[1] + (c.para[1] - c.de[1]) * c.t + c.lado * 7;
+      const r = document.createElementNS(svgNS, "rect");
+      const s = c.moto ? 4 : 8;
+      r.setAttribute("x", x - s / 2); r.setAttribute("y", y - s / 4);
+      r.setAttribute("width", s); r.setAttribute("height", s / 2); r.setAttribute("fill", c.cor);
+      r.setAttribute("stroke", "#000"); r.setAttribute("stroke-width", "1");
+      carros.appendChild(r);
+    }
+    setTimeout(() => requestAnimationFrame(animar), 66); // ~15 fps, como as nuvens do tiny.london
+  }
+  function irPara(x, y, zoom) {
+    viewer.viewport.panTo(toVp(x, y)); viewer.viewport.zoomTo(viewer.viewport.imageToViewportZoom(zoom));
+  }
+  viewer.addHandler("open", () => {
+    carregarPinos(); atualizarPonte(); setInterval(atualizarPonte, 60_000); animar();
+    // #lat,lon (links do now.services) e #ponte-da-amizade
+    const h = decodeURIComponent(location.hash.slice(1));
+    const ll = h.split(",").map(Number);
+    if (ll.length === 2 && ll.every(Number.isFinite) && Math.abs(ll[0]) <= 90) { const [x, y] = toPx(ll[0], ll[1]); setTimeout(() => irPara(x, y, 1.5), 300); }
+    const ponte = meta.bridges?.find((b) => b.slug === h);
+    if (ponte) setTimeout(() => irPara((ponte.br[0] + ponte.py[0]) / 2, (ponte.br[1] + ponte.py[1]) / 2, 0.6), 300);
+  });
 
   // search
   const q = document.getElementById("q"), res = document.getElementById("results");

@@ -1,0 +1,21 @@
+# Câmeras da ponte para `tinymap bridge`. Copie para cameras.yaml (fora do git).
+# Só entra câmera com autorização: sem `authorized_by` o worker se recusa a rodar.
+cameras:
+  - id: amizade-br-1
+    url: "https://exemplo/stream.m3u8"   # HLS/RTSP/MJPEG que o OpenCV abre
+    authorized_by: "Nome, cargo, órgão/empresa — data da autorização"
+    car_length_m: 6.0
+    lanes:
+      # polígonos em pixels da câmera: desenhe com `tinymap bridge-calibrate` e ajuste
+      - direction: BR_PY
+        polygon: [[120, 700], [640, 700], [560, 300], [380, 300]]
+        length_m: 450          # quanto da fila real esse trecho da imagem cobre
+        discharge_per_min: 6   # CALIBRAR: carros liberados por minuto na aduana
+        bridge_minutes: 3
+        walk_base_minutes: 10
+      - direction: PY_BR
+        polygon: [[700, 700], [1200, 700], [900, 300], [700, 300]]
+        length_m: 450
+        discharge_per_min: 5
+        bridge_minutes: 3
+        walk_base_minutes: 12

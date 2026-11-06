@@ -12,6 +12,10 @@
   tinymap generate <region.yaml> --lora X.safetensors [--gpu 0]       paint the map (one worker)
   tinymap unlock   <region.yaml>                  clear locks left by a crashed worker
   tinymap site     <region.yaml> [--version v1]   Deep Zoom pyramid + viewer in site/
+  tinymap bridge   <region.yaml> --cameras cameras.yaml [--dry-run]   ponte ao vivo -> now.services
+  tinymap bridge-calibrate <region.yaml> --cameras cameras.yaml --camera ID   quadro com as faixas
+  tinymap postcard <region.yaml> --at lat,lon --name "Nome"        cartão 1200x630 (og:image)
+  tinymap postcards <region.yaml> [--pinos URL]                    um cartão por loja/imóvel do now.services
 """
 
 from __future__ import annotations
@@ -50,6 +54,12 @@ def main() -> None:
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--at", help="lat,lon for `try`")
     ap.add_argument("--version", default="v1")
+    ap.add_argument("--cameras", default="cameras.yaml")
+    ap.add_argument("--camera")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--weights", default="yolo11m.pt")
+    ap.add_argument("--pinos")
+    ap.add_argument("--precise", default="yes", choices=["yes", "no"])
     a = ap.parse_args()
     run = R.load(a.region, pilot=a.pilot)
 
@@ -118,6 +128,19 @@ def main() -> None:
     elif a.cmd == "site":
         from .pyramid import build
         build(run, a.version)
+    elif a.cmd == "bridge":
+        from .bridge import run as bridge_run
+        bridge_run(Path(a.cameras), weights=a.weights, device=f"cuda:{a.gpu}", dry_run=a.dry_run)
+    elif a.cmd == "bridge-calibrate":
+        from .bridge import calibrate
+        calibrate(Path(a.cameras), a.camera, run.path("bridge", f"{a.camera}_faixas.png"))
+    elif a.cmd == "postcard":
+        from .postcard import make
+        lat, lon = map(float, a.at.split(","))
+        print(make(run, lat, lon, a.name if a.name != "v1" else a.at, precise=a.precise == "yes"))
+    elif a.cmd == "postcards":
+        from .postcard import batch
+        batch(run, a.pinos or run.region["now_services"]["pinos"])
     else:
         ap.error(f"unknown command {a.cmd}")
 

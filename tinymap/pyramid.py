@@ -35,8 +35,15 @@ def build(run: Run, version: str = "v1", quality: int = 90) -> None:
     places = [{"n": p["name"], "k": p.get("kind"), "x": p["px"][0], "y": p["px"][1]}
               for p in load("places_px.json").get("points", [])]
     borders = [f["rings"][0] for f in load("borders_px.json").get("features", [])]
+    from . import geo
+    aff = geo.load(run)
+    bridges = [{"slug": b["slug"], "name": b["name"],
+                "br": geo.to_px(aff, b["br_end"]["lat"], b["br_end"]["lon"]),
+                "py": geo.to_px(aff, b["py_end"]["lat"], b["py_end"]["lon"])}
+               for b in run.region.get("bridges", [])]
     meta = {"title": run.region.get("title", run.name), "width": v["canvas_px"][0], "height": v["canvas_px"][1],
-            "dzi": f"maps/{run.name}/{version}/map.dzi", "places": places, "borders": borders}
+            "dzi": f"maps/{run.name}/{version}/map.dzi", "places": places, "borders": borders,
+            "geo": aff, "bridges": bridges, "live": run.region.get("now_services", {})}
     (ROOT / "site" / "maps" / run.name / "meta.json").write_text(json.dumps(meta))
     (ROOT / "site" / "config.json").write_text(json.dumps({"map": f"maps/{run.name}/meta.json"}))
     print(f"pyramid -> {out}; open with: python -m http.server -d site 8080")

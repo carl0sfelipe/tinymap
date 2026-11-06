@@ -52,3 +52,16 @@ generate:
   steps: 20
   true_cfg: 1.0      # >1 dobra o custo; use 4.0 só se o estilo sair fraco
   seed: 1234
+
+# Pontes com dado ao vivo (now.services /api/mapa/ponte.json). Extremidades aproximadas:
+# confira no render e ajuste para os carrinhos andarem em cima do tabuleiro.
+bridges:
+  - slug: ponte-da-amizade
+    name: Ponte da Amizade
+    br_end: { lat: -25.50945, lon: -54.59830 }
+    py_end: { lat: -25.50990, lon: -54.60460 }
+
+# De onde o mapa lê os pinos e a ponte
+now_services:
+  pinos: https://now.services/api/mapa/pinos.json
+  ponte: https://now.services/api/mapa/ponte.json
