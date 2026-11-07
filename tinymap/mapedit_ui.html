@@ -602,12 +602,16 @@ async function startEditBox(b) {
   const [w, h] = boxWH(b);
   if (w * h > 4096 * 4096) { alert("Área grande demais para editar (máx. 4096 × 4096)."); return false; }
   busy("carregando o recorte…");
-  const [img, ren] = await Promise.all([loadImg(`/api/crop?layer=mixed&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`),
-    loadImg(`/api/crop?layer=render&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`)]);
+  const [img, ren, artImg] = await Promise.all([loadImg(`/api/crop?layer=mixed&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`),
+    loadImg(`/api/crop?layer=render&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`),
+    loadImg(`/api/crop?layer=art&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`)]);
   const mk = (im) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(im, 0, 0); return c; };
-  const buf = mk(img), baseCv = mk(img), renCv = mk(ren);
+  const buf = mk(img), baseCv = mk(img), renCv = mk(ren), artCv = mk(artImg);
+  // onde há desenho de verdade (fora disso o recorte mostra a maquete com satélite, que não pode virar textura nem arte)
+  const ad = artCv.getContext("2d").getImageData(0, 0, w, h).data, hasArt = new Uint8Array(w * h);
+  for (let q = 0; q < w * h; q++) hasArt[q] = ad[q * 4 + 3] > 0 ? 1 : 0;
   edit = { box: [...b], buf, baseCv, baseData: baseCv.getContext("2d").getImageData(0, 0, w, h), renData: renCv.getContext("2d").getImageData(0, 0, w, h),
-    data: buf.getContext("2d").getImageData(0, 0, w, h), undo: [], imported: null, result: null, mask: null, maskCv: null, float: null };
+    data: buf.getContext("2d").getImageData(0, 0, w, h), undo: [], imported: null, result: null, mask: null, maskCv: null, float: null, hasArt };
   busy(); editUI(); palUI(); maskUI(); draw(); return true;
 }
 function editUI() {
@@ -904,13 +908,14 @@ $("#b-lake").onclick = async () => {
 function fillTerrain(mask, near, water = false) {
   // water = true: preenche com textura de água tirada da própria área (para alargar rio ou criar lago)
   const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data;
-  const src = new Uint8ClampedArray(d), bad = water ? (q) => mask[q] || !wetish(src, q * 4) : (q) => mask[q] || near[q] || wetish(src, q * 4);
+  const art = edit.hasArt, src = new Uint8ClampedArray(d);
+  const bad = water ? (q) => mask[q] || !art[q] || !wetish(src, q * 4) : (q) => mask[q] || !art[q] || near[q] || wetish(src, q * 4);
   for (let round = 0; round < 4; round++) {
     const left = []; for (let p = 0; p < N; p++) if (mask[p]) left.push(p);
     if (!left.length) break;
     const sample = left.filter((_, i) => i % Math.max(1, Math.floor(left.length / 3000)) === 0);
     let rr = 0, rg = 0, rb = 0, rn = 0;
-    for (const p of sample) for (const q of [p - 3, p + 3, p - 3 * W, p + 3 * W]) if (q >= 0 && q < N && !mask[q] && !near[q]) { rr += src[q * 4]; rg += src[q * 4 + 1]; rb += src[q * 4 + 2]; rn++; }
+    for (const p of sample) for (const q of [p - 3, p + 3, p - 3 * W, p + 3 * W]) if (q >= 0 && q < N && !mask[q] && !near[q] && art[q]) { rr += src[q * 4]; rg += src[q * 4 + 1]; rb += src[q * 4 + 2]; rn++; }
     rr /= rn || 1; rg /= rn || 1; rb /= rn || 1;
     let best = null, bestScore = -1; const st = Math.max(16, Math.round(Math.min(W, H) / 24));
     for (let dy = -H + st; dy < H; dy += st) for (let dx = -W + st; dx < W; dx += st) {
@@ -924,14 +929,17 @@ function fillTerrain(mask, near, water = false) {
     for (const p of left) { const x = p % W + best[0], y = ((p / W) | 0) + best[1]; if (x < 0 || y < 0 || x >= W || y >= H) continue; const q = y * W + x; if (bad(q)) continue; d.set(src.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; }
   }
   let left = 0; for (let p = 0; p < N; p++) left += mask[p];
+  const filled = new Uint8Array(N);
   if (water && left) { // sem água por perto para copiar: água de pixel art (azul com ondinhas)
     for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, y = (p / W) | 0, i = p * 4, wave = (y % 7 === 0 && (x + y * 3) % 11 < 4); d[i] = wave ? 110 : 52; d[i + 1] = wave ? 170 : 118; d[i + 2] = wave ? 230 : 198; d[i + 3] = 255; mask[p] = 0; }
     left = 0;
   }
   for (let pass = 0; left && pass < 400; pass++) {
     const next = [];
-    for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, nb = []; if (x > 0 && !mask[p - 1]) nb.push(p - 1); if (x < W - 1 && !mask[p + 1]) nb.push(p + 1); if (p >= W && !mask[p - W]) nb.push(p - W); if (p < N - W && !mask[p + W]) nb.push(p + W); if (nb.length) next.push([p, nb[(Math.random() * nb.length) | 0]]); }
-    for (const [p, q] of next) { d.set(d.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; left--; }
+    const ok = (q) => !mask[q] && (art[q] || filled[q]);
+    for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, nb = []; if (x > 0 && ok(p - 1)) nb.push(p - 1); if (x < W - 1 && ok(p + 1)) nb.push(p + 1); if (p >= W && ok(p - W)) nb.push(p - W); if (p < N - W && ok(p + W)) nb.push(p + W); if (nb.length) next.push([p, nb[(Math.random() * nb.length) | 0]]); }
+    if (!next.length) break;
+    for (const [p, q] of next) { d.set(d.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; filled[p] = 1; left--; }
   }
 }
 // ---------- um clique: lago -> rua / terreno (já aplica no mapa) ----------
@@ -963,7 +971,7 @@ async function quickLake(w) {
     refresh(); busy("aplicando no mapa…");
     const label = quick === "road" ? "lago → rua" : "lago → terreno";
     const src = edit.buf; try {
-      const j = await api("/api/apply", { box: edit.box, png: src.toDataURL("image/png"), note: label });
+      const j = await api("/api/apply", { box: edit.box, png: editPNG(src), note: label });
       for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
       edit = null; editUI(); loadHist();
       toast(`✓ ${label}: ${fmt(cnt)} px trocados. Ctrl+Z desfaz.`, 6000);
@@ -972,9 +980,17 @@ async function quickLake(w) {
   }
 }
 // rua: cinza do asfalto da própria área (ou um cinza padrão) com borda escura de 1 px, no estilo do mapa
+// PNG da edição com transparência: pixel sem desenho que não foi mexido continua sem desenho
+function editPNG(src) {
+  const W = edit.data.width, H = edit.data.height, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d"); x.drawImage(src, 0, 0);
+  const id = x.getImageData(0, 0, W, H), d = id.data, base = edit.baseData.data, art = edit.hasArt;
+  for (let q = 0; q < W * H; q++) { if (art[q]) continue; const i = q * 4; if (d[i] === base[i] && d[i + 1] === base[i + 1] && d[i + 2] === base[i + 2]) d[i + 3] = 0; }
+  x.putImageData(id, 0, 0); return c.toDataURL("image/png");
+}
 function paintRoad(m) {
   const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, cnt = new Map();
-  for (let p = 0; p < N; p += 3) { const i = p * 4, r = d[i], g = d[i + 1], b = d[i + 2]; if (Math.abs(r - g) < 10 && Math.abs(g - b) < 12 && r > 60 && r < 150) { const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3); cnt.set(k, (cnt.get(k) || 0) + 1); } }
+  for (let p = 0; p < N; p += 3) { if (!edit.hasArt[p]) continue; const i = p * 4, r = d[i], g = d[i + 1], b = d[i + 2]; if (Math.abs(r - g) < 10 && Math.abs(g - b) < 12 && r > 60 && r < 150) { const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3); cnt.set(k, (cnt.get(k) || 0) + 1); } }
   let road = [104, 104, 106]; if (cnt.size) { const k = [...cnt.entries()].sort((a, b) => b[1] - a[1])[0][0]; road = [((k >> 10) & 31) * 8 + 4, ((k >> 5) & 31) * 8 + 4, (k & 31) * 8 + 4]; }
   const edgeC = road.map((v) => Math.round(v * 0.6));
   for (let p = 0; p < N; p++) {
@@ -1159,7 +1175,7 @@ async function applyEdit() {
   const src = edit.result || edit.buf, note = edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "edição à mão";
   busy("aplicando no mapa…");
   try {
-    const j = await api("/api/apply", { box: edit.box, png: src.toDataURL("image/png"), note });
+    const j = await api("/api/apply", { box: edit.box, png: editPNG(src), note });
     for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
     edit = null; lasso = null; editUI(); loadHist(); busy(); draw(); return true;
   } catch (e) { alert("Erro ao aplicar: " + e.message); busy(); return false; }
