@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tinymap · oficina</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #14171b; --panel: #1c2026; --panel2: #252a31; --line: #343b44; --text: #e7e9ec; --muted: #98a2ad;
+  --accent: #5aa9ff; --ok: #4cc38a; --warn: #f0b84a; --bad: #ef6b6b; --sel: #ff4fd8; --ref: #ffb020;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, select, textarea { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
+button { padding: 5px 9px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.on { background: var(--accent); color: #0b1220; border-color: var(--accent); }
+button.ok { background: var(--ok); color: #06150d; border-color: var(--ok); font-weight: 600; }
+button.chip { border-radius: 99px; padding: 3px 10px; }
+kbd { font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 14px; margin: 0; }
+header .grp { display: flex; gap: 4px; align-items: center; }
+header label { color: var(--muted); display: flex; gap: 4px; align-items: center; }
+#search { position: relative; }
+#search input { width: 220px; padding: 4px 8px; }
+#sres { position: absolute; top: 30px; left: 0; width: 320px; max-height: 50vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: none; z-index: 9; }
+#sres div { padding: 6px 8px; cursor: pointer; }
+#sres div:hover { background: var(--panel2); }
+main { display: grid; grid-template-columns: 46px minmax(0, 1fr) 320px; min-height: 0; }
+#tools { display: flex; flex-direction: column; gap: 4px; padding: 6px 5px; background: var(--panel); border-right: 1px solid var(--line); }
+#tools button { width: 36px; height: 36px; padding: 0; font-size: 16px; }
+#tools hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#wrap { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0b0d10; touch-action: none; }
+#editbar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; align-items: center;
+  background: rgba(20,23,27,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; z-index: 5; }
+#editbar input[type=range] { width: 160px; }
+#busy { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 4px 10px; border-radius: 6px; display: none; }
+aside { border-left: 1px solid var(--line); background: var(--panel); display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+#tabs { display: flex; border-bottom: 1px solid var(--line); }
+#tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px 4px; color: var(--muted); border-bottom: 2px solid transparent; }
+#tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.tab { padding: 10px; overflow: auto; display: none; }
+.tab.on { display: block; }
+.tab h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.tab h3:first-child { margin-top: 0; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.big { font: 600 20px ui-monospace, monospace; }
+.sub { color: var(--muted); font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+textarea { width: 100%; min-height: 56px; padding: 6px; resize: vertical; }
+#prompt { min-height: 110px; font-size: 11px; color: var(--muted); }
+.list div { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+.list div:hover { border-color: var(--accent); }
+.list .undone { opacity: .5; }
+#pal { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; }
+#pal div { aspect-ratio: 1; border-radius: 2px; cursor: pointer; }
+#color { width: 38px; height: 26px; padding: 0; }
+footer { display: flex; gap: 14px; padding: 4px 10px; background: var(--panel); border-top: 1px solid var(--line); color: var(--muted); font: 12px ui-monospace, monospace; flex-wrap: wrap; }
+footer a { color: var(--accent); }
+.note { padding: 8px; border-radius: 6px; background: var(--panel2); color: var(--muted); font-size: 12px; margin: 6px 0; }
+.warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="title">tinymap · oficina</h1>
+    <div id="search"><input id="q" placeholder="Buscar lugar…" autocomplete="off"><div id="sres"></div></div>
+    <div class="grp">
+      <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button>
+      <button id="l-ren" title="Só a maquete com satélite">Maquete</button>
+      <button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o mouse do meio ou a tecla V)">Cortina</button>
+    </div>
+    <div class="grp">
+      <label><input type="checkbox" id="o-area" checked> área</label>
+      <label><input type="checkbox" id="o-grid"> shots</label>
+      <label><input type="checkbox" id="o-iso"> grade iso</label>
+      <label><input type="checkbox" id="o-prob" checked> defeitos</label>
+    </div>
+    <div class="grp" style="margin-left:auto">
+      <span class="sub" id="pubst"></span>
+      <button id="b-pub" title="Reconstrói o site (porta 8080) com as edições">Publicar no site</button>
+    </div>
+  </header>
+  <main>
+    <div id="tools">
+      <button data-tool="pan" title="Mover (H, ou segure espaço)">✋</button>
+      <button data-tool="sel" title="Selecionar área (S) · Shift = quadrado">⬚</button>
+      <button data-tool="ref" title="Referência de estilo (R): um pedaço de arte boa">⭐</button>
+      <button data-tool="measure" title="Régua (M): metros no chão e andares na vertical">📏</button>
+      <hr>
+      <button data-tool="pencil" title="Lápis (B) · Alt+clique pega a cor">✏️</button>
+      <button data-tool="pick" title="Conta-gotas (I)">💧</button>
+      <button data-tool="clone" title="Carimbo (C): Alt+clique define a origem">🧬</button>
+      <button id="b-lake" title="Apagar lagoa: troca a água inventada da seleção pelo terreno em volta (L)">🏝️</button>
+      <hr>
+      <button id="b-undo" title="Desfazer pincel (Ctrl+Z)">↶</button>
+      <button id="b-fit" title="Ver o mapa inteiro (F)">⤢</button>
+    </div>
+    <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div>
+      <div id="editbar"><span class="sub" id="ebinfo"></span><label class="sub">antes <input type="range" id="i-split" min="0" max="100" value="100"> depois</label>
+        <button class="ok" id="b-apply">Aplicar no mapa</button><button id="b-cancel">Descartar</button></div></div>
+    <aside>
+      <div id="tabs">
+        <button data-tab="sel" class="on">Seleção</button>
+        <button data-tab="imp">Importar</button>
+        <button data-tab="prob">Defeitos</button>
+        <button data-tab="hist">Histórico</button>
+      </div>
+      <div class="tab on" id="t-sel">
+        <h3>Seleção</h3>
+        <div id="selinfo" class="note">Escolha a ferramenta ⬚ e arraste no mapa. O tamanho aparece aqui, em pixels e em metros.</div>
+        <div class="row">
+          <span class="sub">tamanho:</span>
+          <button class="chip" data-size="512">512</button><button class="chip" data-size="1024">1024</button>
+          <button class="chip" data-size="1536">1536</button><button class="chip" data-size="2048">2048</button>
+        </div>
+        <div class="row"><label class="sub"><input type="checkbox" id="snap" checked> encaixar em 16 px</label>
+          <button id="b-clear">Limpar</button><a id="gmaps" target="_blank" rel="noopener" class="sub"></a></div>
+        <h3>Referência de estilo ⭐</h3>
+        <div id="refinfo" class="note">Opcional. Com ⭐ marque um pedaço de arte que ficou bom: ele vai junto como modelo de estilo. Obrigatório para gerar onde ainda não há arte.</div>
+        <h3>Exportar para o Gemini</h3>
+        <div class="row"><span class="sub">modo:</span>
+          <select id="mode"><option value="auto">automático</option><option value="improve">melhorar a arte</option><option value="generate">gerar da maquete</option></select>
+          <span class="sub" id="modehint"></span></div>
+        <div class="chips" id="presets"></div>
+        <textarea id="extra" placeholder="Seu pedido extra (ex.: o prédio do canto é a catedral, com torre e telhado verde)"></textarea>
+        <div class="row" style="margin-top:6px">
+          <button class="ok" id="b-export" disabled>Exportar .zip</button>
+          <button id="b-copy" disabled>Copiar prompt</button>
+          <button id="b-img" disabled title="Copia a imagem do recorte para colar direto no Gemini">Copiar imagem</button>
+        </div>
+        <textarea id="prompt" readonly></textarea>
+      </div>
+      <div class="tab" id="t-imp">
+        <h3>Importar a versão melhorada</h3>
+        <div class="note">Com a mesma seleção ativa, <b>cole (Ctrl+V)</b> a imagem que o Gemini devolveu ou escolha o arquivo. A oficina ajusta o tamanho para a seleção.</div>
+        <div class="row"><input type="file" id="file" accept="image/*"></div>
+        <h3>Ajustes</h3>
+        <div class="row"><label><input type="checkbox" id="i-align" checked> alinhar sozinho (até ±12 px)</label></div>
+        <div class="row"><label><input type="checkbox" id="i-pal" checked> ajustar à paleta do mapa</label></div>
+        <div class="row"><label><input type="checkbox" id="i-pix" checked> pixel nítido</label></div>
+        <div class="row"><label>borda suave <input type="range" id="i-feather" min="0" max="64" value="16"> <span id="i-fv">16</span> px</label></div>
+        <div class="row"><button id="b-reproc" disabled>Refazer ajustes</button></div>
+        <div class="sub" id="impinfo"></div>
+        <h3>Pincel</h3>
+        <div class="row"><input type="color" id="color" value="#4a7a3a"><label>tamanho <input type="range" id="bsize" min="1" max="24" value="2"></label><span id="bsv">2</span></div>
+        <div id="pal"></div>
+        <div class="sub" id="editinfo" style="margin-top:8px">Nada em edição.</div>
+      </div>
+      <div class="tab" id="t-prob">
+        <h3>Caçador de lagos</h3>
+        <div class="note">Compara a arte com a maquete e lista a água inventada e a terra pintada no rio, das maiores para as menores. Clique para ir até lá; a seleção já fica pronta para consertar ou exportar.</div>
+        <div class="row"><button id="b-scan">Procurar no mapa todo</button><span class="sub" id="scanst"></span></div>
+        <div class="list" id="problist"></div>
+      </div>
+      <div class="tab" id="t-hist">
+        <h3>Histórico de edições</h3>
+        <div class="list" id="histlist"></div>
+      </div>
+    </aside>
+  </main>
+  <footer><span id="f-pos">—</span><span id="f-ll"></span><span id="f-zoom"></span><span id="f-meas"></span></footer>
+</div>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const cv = $("#cv"), ctx = cv.getContext("2d");
+let M = null, view = { s: 0.05, x: 0, y: 0 }, tool = "pan", layer = "art", curtain = 0.5;
+let sel = null, ref = null, meas = null, problems = [], palette = [], shotVer = {}, artSet = new Set();
+let edit = null;      // { box, base:ImageData, buf:canvas, undo:[], imported:Image|null, result:canvas|null }
+let spaceDown = false, drag = null, mouseW = null, cloneSrc = null;
+const tiles = new Map();
+
+// ---------- util ----------
+const api = async (p, body) => {
+  const r = await fetch(p, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  if ((r.headers.get("content-type") || "").includes("json")) { const j = await r.json(); if (j.error) throw new Error(j.error); return j; }
+  if (!r.ok) throw new Error(r.status); return r;
+};
+const busy = (t) => { $("#busy").textContent = t || ""; $("#busy").style.display = t ? "block" : "none"; };
+const snap = (v) => ($("#snap").checked ? Math.round(v / 16) * 16 : Math.round(v));
+const boxWH = (b) => [b[2] - b[0], b[3] - b[1]];
+const fmt = (n) => n.toLocaleString("pt-BR");
+function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; }); }
+
+// ---------- geo (polinômio do tinymap.geo) ----------
+function toPx(lat, lon) {
+  const g = M.geo, dl = lat - g.origin[0], dn = lon - g.origin[1], t = [1, dl, dn, dl * dl, dl * dn, dn * dn];
+  return g.a.map((row) => row.reduce((s, c, i) => s + c * t[i], 0));
+}
+function toLL(x, y) {
+  if (!M.geo) return null;
+  let [lat, lon] = M.geo.origin;
+  for (let k = 0; k < 20; k++) {
+    const [px, py] = toPx(lat, lon), ex = x - px, ey = y - py;
+    if (Math.abs(ex) + Math.abs(ey) < 1e-3) break;
+    const d = 1e-5, [ax, ay] = toPx(lat + d, lon), [bx, by] = toPx(lat, lon + d);
+    const j = [[(ax - px) / d, (bx - px) / d], [(ay - py) / d, (by - py) / d]], det = j[0][0] * j[1][1] - j[0][1] * j[1][0];
+    lat += (j[1][1] * ex - j[0][1] * ey) / det; lon += (-j[1][0] * ex + j[0][0] * ey) / det;
+  }
+  return [lat, lon];
+}
+function meters(a, b) {
+  const R = 6371000, r = Math.PI / 180, [la1, lo1] = a, [la2, lo2] = b;
+  const h = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// ---------- tiles ----------
+function tileSize() { const px = M.shot * view.s * devicePixelRatio; return px <= 300 ? 256 : px <= 1100 ? 1024 : 2048; }
+function getTile(layer, r, c, size) {
+  const k = `${layer}/${r}/${c}/${size}/${shotVer[`${r}_${c}`] || 0}`;
+  let t = tiles.get(k);
+  if (!t) {
+    t = { img: new Image(), ok: false };
+    t.img.onload = () => { t.ok = true; draw(); };
+    t.img.onerror = () => { t.bad = true; };
+    t.img.src = `/tile/${layer}/${r}/${c}/${size}?v=${shotVer[`${r}_${c}`] || 0}`;
+    tiles.set(k, t);
+    if (tiles.size > 500) tiles.delete(tiles.keys().next().value);
+  }
+  return t;
+}
+
+// ---------- desenho ----------
+function syncSize() { const r = cv.getBoundingClientRect(); const w = Math.round(r.width * devicePixelRatio), h = Math.round(r.height * devicePixelRatio); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } }
+new ResizeObserver(() => { syncSize(); draw(); }).observe($("#wrap"));
+const W2S = (x, y) => [x * view.s * devicePixelRatio + view.x, y * view.s * devicePixelRatio + view.y];
+const S2W = (sx, sy) => [(sx - view.x) / (view.s * devicePixelRatio), (sy - view.y) / (view.s * devicePixelRatio)];
+let raf = 0;
+function draw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); }
+function paint() {
+  if (!M) return;
+  const k = view.s * devicePixelRatio, S = M.shot;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.imageSmoothingEnabled = k < 1;
+  const [wx0, wy0] = S2W(0, 0), [wx1, wy1] = S2W(cv.width, cv.height);
+  const c0 = Math.max(0, Math.floor(wx0 / S)), c1 = Math.min(M.cols - 1, Math.floor(wx1 / S));
+  const r0 = Math.max(0, Math.floor(wy0 / S)), r1 = Math.min(M.rows - 1, Math.floor(wy1 / S));
+  const size = tileSize(), cutX = cv.width * curtain;
+  ctx.setTransform(k, 0, 0, k, view.x, view.y);
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const rt = getTile("render", r, c, size);
+    if (rt.ok) ctx.drawImage(rt.img, c * S, r * S, S, S);
+    if (layer === "ren" || !artSet.has(`r${r}_c${c}`)) continue;
+    const at = getTile("art", r, c, size);
+    if (!at.ok) continue;
+    if (layer === "cur") {
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.beginPath(); ctx.rect(cutX, 0, cv.width - cutX, cv.height); ctx.clip();
+      ctx.setTransform(k, 0, 0, k, view.x, view.y); ctx.drawImage(at.img, c * S, r * S, S, S); ctx.restore();
+    } else ctx.drawImage(at.img, c * S, r * S, S, S);
+  }
+  // edição em andamento por cima
+  if (edit) {
+    const src = edit.result || edit.buf, [w, h] = boxWH(edit.box), split = +$("#i-split").value / 100;
+    if (split < 1) {
+      ctx.drawImage(edit.baseCv, edit.box[0], edit.box[1]);
+      ctx.drawImage(src, 0, 0, w * split, h, edit.box[0], edit.box[1], w * split, h);
+    } else ctx.drawImage(src, edit.box[0], edit.box[1]);
+  }
+  const lw = 1 / k;
+  if ($("#o-grid").checked) { ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = lw; for (let r = r0; r <= r1 + 1; r++) { ctx.beginPath(); ctx.moveTo(c0 * S, r * S); ctx.lineTo((c1 + 1) * S, r * S); ctx.stroke(); } for (let c = c0; c <= c1 + 1; c++) { ctx.beginPath(); ctx.moveTo(c * S, r0 * S); ctx.lineTo(c * S, (r1 + 1) * S); ctx.stroke(); } }
+  if ($("#o-area").checked && M.area) { ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.setLineDash([8 / k, 6 / k]); ctx.lineWidth = 1.5 * lw; ctx.beginPath(); M.area.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
+  if ($("#o-iso").checked && M.axes && k > 0.15) isoGrid(wx0, wy0, wx1, wy1, lw);
+  if ($("#o-prob").checked) { ctx.lineWidth = 2 * lw; for (const p of problems) { ctx.strokeStyle = p.kind === "terra no rio" ? "rgba(255,170,0,.9)" : "rgba(0,200,255,.9)"; ctx.strokeRect(p.box[0], p.box[1], p.box[2] - p.box[0], p.box[3] - p.box[1]); } }
+  if (layer === "cur") { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#fff"; ctx.fillRect(cutX - 1, 0, 2, cv.height); ctx.setTransform(k, 0, 0, k, view.x, view.y); }
+  for (const [b, col, name] of [[ref, "#ffb020", "referência"], [sel, "#ff4fd8", "seleção"]]) {
+    if (!b) continue;
+    ctx.strokeStyle = col; ctx.lineWidth = 2 * lw; ctx.strokeRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+    const [w, h] = boxWH(b); ctx.fillStyle = col; ctx.font = `${12 / k}px ui-monospace, monospace`;
+    ctx.fillText(`${name} ${w} × ${h} px`, b[0], b[1] - 4 / k);
+  }
+  if (meas) { ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 2 * lw; ctx.beginPath(); ctx.moveTo(meas[0], meas[1]); ctx.lineTo(meas[2], meas[3]); ctx.stroke(); }
+  if (mouseW && (tool === "pencil" || tool === "clone") && edit) { const z = +$("#bsize").value, o = Math.floor(z / 2); ctx.strokeStyle = "#fff"; ctx.lineWidth = lw; ctx.strokeRect(Math.floor(mouseW[0]) - o, Math.floor(mouseW[1]) - o, z, z); }
+  $("#f-zoom").textContent = `zoom ${(view.s * 100).toFixed(1)}%`;
+}
+function isoGrid(wx0, wy0, wx1, wy1, lw) {
+  // linhas a cada 10 m na direção leste e norte do terreno (as paredes dos prédios seguem essas direções)
+  const step = 10, e = M.axes.east.map((v) => v * step), n = M.axes.north.map((v) => v * step);
+  const cx = (wx0 + wx1) / 2, cy = (wy0 + wy1) / 2, span = Math.hypot(wx1 - wx0, wy1 - wy0);
+  ctx.strokeStyle = "rgba(255,225,74,.25)"; ctx.lineWidth = lw;
+  for (const [a, b] of [[e, n], [n, e]]) {
+    const la = Math.hypot(...a), lb = Math.hypot(...b), cnt = Math.ceil(span / Math.min(la, lb)) + 2;
+    for (let i = -cnt; i <= cnt; i++) {
+      const ox = cx + b[0] * i, oy = cy + b[1] * i, ux = a[0] / la * span, uy = a[1] / la * span;
+      ctx.beginPath(); ctx.moveTo(ox - ux, oy - uy); ctx.lineTo(ox + ux, oy + uy); ctx.stroke();
+    }
+  }
+}
+function fit() { syncSize(); const s = Math.min(cv.width / M.canvas[0], cv.height / M.canvas[1]) * 0.96 / devicePixelRatio; view = { s, x: (cv.width - M.canvas[0] * s * devicePixelRatio) / 2, y: (cv.height - M.canvas[1] * s * devicePixelRatio) / 2 }; draw(); }
+function goTo(x, y, s) { syncSize(); view.s = s ?? Math.max(view.s, 0.5); view.x = cv.width / 2 - x * view.s * devicePixelRatio; view.y = cv.height / 2 - y * view.s * devicePixelRatio; draw(); }
+function goBox(b) { syncSize(); const [w, h] = boxWH(b); const s = Math.min(cv.width / (w * 1.6), cv.height / (h * 1.6)) / devicePixelRatio; goTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(4, s)); }
+
+// ---------- seleção ----------
+function setSel(b) {
+  if (edit && b && (b[0] !== edit.box[0] || b[1] !== edit.box[1] || b[2] !== edit.box[2] || b[3] !== edit.box[3])) {
+    if (!confirm("Há uma edição não aplicada nesta seleção. Descartar?")) return; edit = null; editUI();
+  }
+  sel = b ? norm(b) : null; selUI(); draw();
+}
+function norm(b) { const x0 = Math.max(0, Math.min(b[0], b[2])), y0 = Math.max(0, Math.min(b[1], b[3])); const x1 = Math.min(M.canvas[0], Math.max(b[0], b[2])), y1 = Math.min(M.canvas[1], Math.max(b[1], b[3])); return [x0, y0, Math.max(x0 + 16, x1), Math.max(y0 + 16, y1)]; }
+function artShare(b) { let tot = 0, art = 0; const S = M.shot; for (let r = Math.floor(b[1] / S); r <= Math.floor((b[3] - 1) / S); r++) for (let c = Math.floor(b[0] / S); c <= Math.floor((b[2] - 1) / S); c++) { const w = Math.min(b[2], (c + 1) * S) - Math.max(b[0], c * S), h = Math.min(b[3], (r + 1) * S) - Math.max(b[1], r * S); tot += w * h; if (artSet.has(`r${r}_c${c}`)) art += w * h; } return tot ? art / tot : 0; }
+function curMode() { const m = $("#mode").value; return m !== "auto" ? m : sel && artShare(sel) >= 0.5 ? "improve" : "generate"; }
+function selUI() {
+  const has = !!sel;
+  ["#b-export", "#b-copy", "#b-img"].forEach((s) => ($(s).disabled = !has));
+  if (!has) { $("#selinfo").innerHTML = "Escolha a ferramenta ⬚ e arraste no mapa. O tamanho aparece aqui, em pixels e em metros."; $("#gmaps").textContent = ""; $("#prompt").value = ""; return; }
+  const [w, h] = boxWH(sel), mw = (w * M.mpp).toFixed(0), mh = (h * M.mpp).toFixed(0), share = artShare(sel);
+  const ll = toLL((sel[0] + sel[2]) / 2, (sel[1] + sel[3]) / 2);
+  $("#selinfo").innerHTML = `<div class="big">${fmt(w)} × ${fmt(h)} px</div><div class="sub">≈ ${mw} × ${mh} m · ${(share * 100).toFixed(0)}% com arte · origem (${sel[0]}, ${sel[1]})</div>` +
+    (Math.max(w, h) > 2048 ? `<div class="warn">Grande para o Gemini: ele devolve ~1024 px e perde detalhe. Prefira até 1024–1536.</div>` : "");
+  if (ll) { $("#gmaps").href = `https://www.google.com/maps/@${ll[0]},${ll[1]},150m/data=!3m1!1e3`; $("#gmaps").textContent = "ver no satélite ↗"; }
+  const m = curMode();
+  $("#modehint").textContent = m === "improve" ? "a seleção tem arte" : "sem arte aqui: vai a maquete + a ⭐ referência";
+  $("#refinfo").innerHTML = ref ? `<b>${boxWH(ref).join(" × ")} px</b> marcada. <button id="b-unref">tirar</button>` :
+    (m === "generate" ? `<span class="warn">Para gerar onde não há arte, marque com ⭐ um pedaço de arte boa como modelo.</span>` : "Opcional. Com ⭐ marque um pedaço de arte que ficou bom.");
+  const u = $("#b-unref"); if (u) u.onclick = () => { ref = null; selUI(); draw(); };
+  refreshPrompt();
+}
+let promptT = 0;
+function refreshPrompt() { clearTimeout(promptT); promptT = setTimeout(async () => { if (!sel) return; const j = await api("/api/prompt", { box: sel, mode: curMode(), preset: curPreset, text: $("#extra").value, ref }); $("#prompt").value = j.prompt; }, 150); }
+let curPreset = "";
+const PRESET_LABEL = { agua: "remover água inventada", predios: "mais detalhes nos prédios", verde: "árvores e verde", ruas: "ruas e carros", vida: "vida urbana", fiel: "fiel à maquete" };
+
+// ---------- ferramentas no mapa ----------
+function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : "crosshair"; if (["pencil", "clone", "pick"].includes(t)) startEdit(); }
+$("#tools").addEventListener("click", (e) => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
+const evW = (e) => { const r = cv.getBoundingClientRect(); return S2W((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
+cv.addEventListener("pointerdown", (e) => {
+  cv.setPointerCapture(e.pointerId);
+  const w = evW(e);
+  if (e.button === 1 && layer === "cur") { drag = { curtain: true }; return; }
+  if (e.button !== 0 || spaceDown || tool === "pan") { drag = { pan: true, sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
+  if (tool === "sel" || tool === "ref") { drag = { box: true, x: snap(w[0]), y: snap(w[1]), which: tool }; return; }
+  if (tool === "measure") { meas = [w[0], w[1], w[0], w[1]]; drag = { meas: true }; return; }
+  if (!edit || !inBox(w, edit.box)) return;
+  const lx = Math.floor(w[0] - edit.box[0]), ly = Math.floor(w[1] - edit.box[1]);
+  if (tool === "pick" || (tool === "pencil" && e.altKey)) return pickColor(lx, ly);
+  if (tool === "clone" && e.altKey) { cloneSrc = [lx, ly]; $("#editinfo").textContent = `Origem do carimbo em (${lx}, ${ly}). Agora pinte onde quer copiar.`; return; }
+  if (tool === "clone" && !cloneSrc) { $("#editinfo").textContent = "Alt+clique primeiro para escolher de onde copiar."; return; }
+  pushUndo(); drag = { paint: true, last: [lx, ly], off: tool === "clone" ? [cloneSrc[0] - lx, cloneSrc[1] - ly] : null };
+  stamp(lx, ly, drag.off); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw();
+});
+cv.addEventListener("pointermove", (e) => {
+  const w = evW(e); mouseW = w;
+  $("#f-pos").textContent = `x ${Math.round(w[0])} y ${Math.round(w[1])}`;
+  const ll = M && M.geo ? toLL(w[0], w[1]) : null; $("#f-ll").textContent = ll ? `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}` : "";
+  if (!drag) { if (edit) draw(); return; }
+  if (drag.curtain) { const r = cv.getBoundingClientRect(); curtain = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
+  else if (drag.pan) { view.x = drag.vx + (e.clientX - drag.sx) * devicePixelRatio; view.y = drag.vy + (e.clientY - drag.sy) * devicePixelRatio; }
+  else if (drag.box) {
+    let x1 = snap(w[0]), y1 = snap(w[1]);
+    if (e.shiftKey) { const d = Math.max(Math.abs(x1 - drag.x), Math.abs(y1 - drag.y)); x1 = drag.x + Math.sign(x1 - drag.x || 1) * d; y1 = drag.y + Math.sign(y1 - drag.y || 1) * d; }
+    const b = norm([drag.x, drag.y, x1, y1]);
+    if (drag.which === "ref") ref = b; else { sel = b; }
+    selUI();
+  } else if (drag.meas) { meas[2] = w[0]; meas[3] = w[1]; measUI(); }
+  else if (drag.paint) { const lx = Math.floor(w[0] - edit.box[0]), ly = Math.floor(w[1] - edit.box[1]); line(drag.last, [lx, ly], drag.off); drag.last = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
+  draw();
+});
+const endDrag = () => { if (drag && drag.box && drag.which === "sel") setSel(sel); if (drag && drag.paint) palUI(); drag = null; };
+cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * devicePixelRatio, py = (e.clientY - r.top) * devicePixelRatio; const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(16, Math.max(0.01, view.s * k)); view.x = px - (px - view.x) * s / view.s; view.y = py - (py - view.y) * s / view.s; view.s = s; draw(); }, { passive: false });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+const inBox = (w, b) => w[0] >= b[0] && w[0] < b[2] && w[1] >= b[1] && w[1] < b[3];
+function measUI() {
+  if (!meas) return;
+  const dx = meas[2] - meas[0], dy = meas[3] - meas[1], px = Math.hypot(dx, dy), a = toLL(meas[0], meas[1]), b = toLL(meas[2], meas[3]);
+  const ground = a && b ? meters(a, b) : px * M.mpp, up = M.axes ? Math.abs(dy) / Math.abs(M.axes.up[1]) : 0;
+  $("#f-meas").textContent = `régua: ${px.toFixed(0)} px · ${ground.toFixed(1)} m no chão · se for altura: ${up.toFixed(1)} m ≈ ${(up / 3).toFixed(1)} andares`;
+}
+
+// ---------- edição (pincel, carimbo, lagoa, importar) ----------
+async function startEdit() {
+  if (edit) return true;
+  if (!sel) { $("#editinfo").textContent = "Selecione uma área (⬚) primeiro: o pincel e o carimbo só mexem dentro dela."; return false; }
+  const [w, h] = boxWH(sel);
+  if (w * h > 4096 * 4096) { alert("Seleção grande demais para editar (máx. 4096 × 4096)."); return false; }
+  busy("carregando o recorte…");
+  const [img, ren] = await Promise.all([loadImg(`/api/crop?layer=mixed&x0=${sel[0]}&y0=${sel[1]}&x1=${sel[2]}&y1=${sel[3]}`),
+    loadImg(`/api/crop?layer=render&x0=${sel[0]}&y0=${sel[1]}&x1=${sel[2]}&y1=${sel[3]}`)]);
+  const mk = (im) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(im, 0, 0); return c; };
+  const buf = mk(img), baseCv = mk(img), renCv = mk(ren);
+  edit = { box: [...sel], buf, baseCv, renData: renCv.getContext("2d").getImageData(0, 0, w, h), data: buf.getContext("2d").getImageData(0, 0, w, h), undo: [], imported: null, result: null };
+  busy(); editUI(); palUI(); draw(); return true;
+}
+function editUI() {
+  const on = !!edit;
+  $("#editbar").style.display = on ? "flex" : "none"; $("#b-reproc").disabled = !(edit && edit.imported);
+  if (on) $("#ebinfo").textContent = `editando ${boxWH(edit.box).join(" × ")} px`;
+  $("#editinfo").textContent = on ? `Editando ${boxWH(edit.box).join(" × ")} px em (${edit.box[0]}, ${edit.box[1]}). Nada vai para o mapa até “Aplicar”.` : "Nada em edição.";
+}
+function pushUndo() { if (!edit) return; if (edit.result) commitResult(); edit.undo.push(new ImageData(new Uint8ClampedArray(edit.data.data), edit.data.width, edit.data.height)); if (edit.undo.length > 15) edit.undo.shift(); }
+function commitResult() { const x = edit.buf.getContext("2d"); x.drawImage(edit.result, 0, 0); edit.data = x.getImageData(0, 0, edit.buf.width, edit.buf.height); edit.result = null; $("#i-split").value = 100; }
+function rgb() { const c = $("#color").value; return [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)); }
+function stamp(x, y, off) {
+  const z = +$("#bsize").value, o = Math.floor(z / 2), d = edit.data.data, W = edit.data.width, H = edit.data.height, [r, g, b] = rgb();
+  for (let yy = y - o; yy < y - o + z; yy++) for (let xx = x - o; xx < x - o + z; xx++) {
+    if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+    const i = (yy * W + xx) * 4;
+    if (off) { const sx = xx + off[0], sy = yy + off[1]; if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue; const j = (sy * W + sx) * 4; d[i] = d[j]; d[i + 1] = d[j + 1]; d[i + 2] = d[j + 2]; }
+    else { d[i] = r; d[i + 1] = g; d[i + 2] = b; }
+    d[i + 3] = 255;
+  }
+}
+function line(a, b, off) { let [x0, y0] = a; const [x1, y1] = b, dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx + dy; for (;;) { stamp(x0, y0, off); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } } }
+function pickColor(x, y) { const d = edit.data.data, i = (y * edit.data.width + x) * 4; $("#color").value = "#" + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join(""); }
+function palUI() {
+  const cols = new Map(); if (edit) { const d = edit.data.data; for (let i = 0; i < d.length; i += 64) { const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3); cols.set(k, (cols.get(k) || 0) + 1); } }
+  const local = [...cols.entries()].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([k]) => "#" + [(k >> 10) & 31, (k >> 5) & 31, k & 31].map((v) => (v * 8 + 4).toString(16).padStart(2, "0")).join(""));
+  $("#pal").innerHTML = [...local, ...palette.slice(0, 24)].map((c) => `<div style="background:${c}" data-c="${c}" title="${c}"></div>`).join("");
+}
+$("#pal").onclick = (e) => { if (e.target.dataset.c) $("#color").value = e.target.dataset.c; };
+$("#bsize").oninput = () => { $("#bsv").textContent = $("#bsize").value; };
+$("#b-undo").onclick = () => { if (!edit || !edit.undo.length) return; edit.data = edit.undo.pop(); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw(); };
+
+// apagar lagoa: água inventada (azul ou turquesa fora do rio da maquete) vira o terreno em volta
+const wet = (d, i) => d[i + 2] - d[i] > 60 && d[i + 2] - d[i + 1] > 15;         // regra estrita (rio pintado na maquete)
+const wetish = (d, i) => d[i + 2] - d[i] > 40 && d[i + 2] > d[i + 1] - 35;     // qualquer azul/turquesa na arte (grama tem azul baixo)
+$("#b-lake").onclick = async () => {
+  if (!(await startEdit())) return;
+  pushUndo(); busy("apagando lagoa…"); await new Promise((r) => setTimeout(r, 20));
+  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, rd = edit.renData.data;
+  const river = new Uint8Array(N); for (let p = 0; p < N; p++) river[p] = wet(rd, p * 4) ? 1 : 0;
+  const near = dilate(river, W, H, 12);                                           // o rio de verdade fica intocado
+  let mask = new Uint8Array(N); for (let p = 0; p < N; p++) if (wetish(d, p * 4) && !near[p]) mask[p] = 1;
+  mask = dilate(mask, W, H, 2); for (let p = 0; p < N; p++) if (near[p]) mask[p] = 0;  // pega a borda clara da lagoa
+  let n = 0; for (let p = 0; p < N; p++) n += mask[p];
+  if (!n) { busy(); $("#editinfo").textContent = "Nenhuma água inventada nesta seleção."; return; }
+  // 1) textura: acha um deslocamento onde a origem é terreno sem água e copia (mata vira mata, grama vira grama)
+  const src = new Uint8ClampedArray(d), bad = (q) => mask[q] || near[q] || wetish(src, q * 4);
+  for (let round = 0; round < 4; round++) {
+    const left = []; for (let p = 0; p < N; p += 1) if (mask[p]) left.push(p);
+    if (!left.length) break;
+    const sample = left.filter((_, i) => i % Math.max(1, Math.floor(left.length / 3000)) === 0);
+    // cor média do entorno da lagoa: a origem deve parecer com ela (verde perto de verde, sem trazer casas)
+    let rr = 0, rg = 0, rb = 0, rn = 0;
+    for (const p of sample) for (const q of [p - 3, p + 3, p - 3 * W, p + 3 * W]) if (q >= 0 && q < N && !mask[q] && !near[q]) { rr += src[q * 4]; rg += src[q * 4 + 1]; rb += src[q * 4 + 2]; rn++; }
+    rr /= rn || 1; rg /= rn || 1; rb /= rn || 1;
+    let best = null, bestScore = -1; const st = Math.max(16, Math.round(Math.min(W, H) / 24));
+    for (let dy = -H + st; dy < H; dy += st) for (let dx = -W + st; dx < W; dx += st) {
+      if (!dx && !dy) continue; let ok = 0, cr = 0, cg = 0, cb = 0, ink = 0;
+      for (const p of sample) { const x = p % W + dx, y = ((p / W) | 0) + dy; if (x >= 0 && y >= 0 && x < W && y < H && !bad(y * W + x)) { ok++; const q = (y * W + x) * 4; cr += src[q]; cg += src[q + 1]; cb += src[q + 2]; if (src[q] < 50 && src[q + 1] < 50 && src[q + 2] < 50) ink++; } }
+      const dist = ok ? Math.hypot(cr / ok - rr, cg / ok - rg, cb / ok - rb) / 255 : 1;
+      // contorno preto = prédio: copiar de lá inventaria construções; grama e mata quase não têm
+      const score = ok / sample.length - dist * 0.8 - (ok ? ink / ok : 0) * 4 - Math.hypot(dx, dy) / (W + H) * 0.15;
+      if (score > bestScore) { bestScore = score; best = [dx, dy]; }
+    }
+    if (!best || bestScore <= 0.05) break;
+    for (const p of left) { const x = p % W + best[0], y = ((p / W) | 0) + best[1]; if (x < 0 || y < 0 || x >= W || y >= H) continue; const q = y * W + x; if (bad(q)) continue; d.set(src.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; }
+  }
+  // 2) o que sobrou: cor de um vizinho, de fora para dentro
+  let left = 0; for (let p = 0; p < N; p++) left += mask[p];
+  for (let pass = 0; left && pass < 400; pass++) {
+    const next = [];
+    for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, nb = []; if (x > 0 && !mask[p - 1]) nb.push(p - 1); if (x < W - 1 && !mask[p + 1]) nb.push(p + 1); if (p >= W && !mask[p - W]) nb.push(p - W); if (p < N - W && !mask[p + W]) nb.push(p + W); if (nb.length) next.push([p, nb[(Math.random() * nb.length) | 0]]); }
+    for (const [p, q] of next) { d.set(d.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; left--; }
+  }
+  edit.buf.getContext("2d").putImageData(edit.data, 0, 0); busy();
+  $("#editinfo").textContent = `Lagoa apagada: ${fmt(n)} px trocados por terreno da própria seleção. Use “antes ↔ depois” na barra e “Aplicar no mapa”.`;
+  $("#i-split").value = 100; draw();
+};
+function dilate(m, W, H, r) { // dilatação separável (máximo numa janela de 2r+1)
+  const a = new Uint8Array(W * H), b = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) { let run = -1e9; for (let x = 0; x < W; x++) { if (m[y * W + x]) run = x; a[y * W + x] = x - run <= r ? 1 : 0; } run = 1e9; for (let x = W - 1; x >= 0; x--) { if (m[y * W + x]) run = x; if (run - x <= r) a[y * W + x] = 1; } }
+  for (let x = 0; x < W; x++) { let run = -1e9; for (let y = 0; y < H; y++) { if (a[y * W + x]) run = y; b[y * W + x] = y - run <= r ? 1 : 0; } run = 1e9; for (let y = H - 1; y >= 0; y--) { if (a[y * W + x]) run = y; if (run - y <= r) b[y * W + x] = 1; } }
+  return b;
+}
+
+// importar: colar ou arquivo -> tamanho da seleção -> alinhar, paleta, pixel nítido, borda suave
+addEventListener("paste", async (e) => {
+  const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (!it) return; e.preventDefault(); importBlob(it.getAsFile());
+});
+$("#file").onchange = (e) => { if (e.target.files[0]) importBlob(e.target.files[0]); };
+async function importBlob(blob) {
+  if (!sel) { alert("Selecione primeiro a mesma área que você exportou."); return; }
+  if (!(await startEdit())) return;
+  showTab("imp");
+  edit.imported = await loadImg(URL.createObjectURL(blob)); editUI(); await processImport();
+}
+$("#b-reproc").onclick = processImport;
+["#i-align", "#i-pal", "#i-pix"].forEach((s) => $(s).addEventListener("change", () => edit && edit.imported && processImport()));
+$("#i-feather").oninput = () => { $("#i-fv").textContent = $("#i-feather").value; };
+$("#i-feather").onchange = () => edit && edit.imported && processImport();
+$("#i-split").oninput = draw;
+async function processImport() {
+  busy("ajustando…"); await new Promise((r) => setTimeout(r, 20));
+  const [w, h] = boxWH(edit.box), im = edit.imported, notes = [];
+  const ar = (im.width / im.height) / (w / h); if (Math.abs(ar - 1) > 0.04) notes.push(`proporção diferente da seleção (${im.width}×${im.height}): esticado`);
+  let c = document.createElement("canvas"); c.width = w; c.height = h; let x = c.getContext("2d", { willReadFrequently: true });
+  x.imageSmoothingQuality = "high"; x.drawImage(im, 0, 0, w, h);
+  if ($("#i-pix").checked) { // reduz pela metade e amplia sem suavizar: devolve o pixel duro
+    const t = document.createElement("canvas"); t.width = Math.max(1, w >> 1); t.height = Math.max(1, h >> 1);
+    const tx = t.getContext("2d"); tx.imageSmoothingQuality = "high"; tx.drawImage(c, 0, 0, t.width, t.height);
+    x.imageSmoothingEnabled = false; x.clearRect(0, 0, w, h); x.drawImage(t, 0, 0, w, h);
+  }
+  let nd = x.getImageData(0, 0, w, h);
+  const old = edit.baseCv.getContext("2d").getImageData(0, 0, w, h);
+  if ($("#i-align").checked) { const [dx, dy, gain] = align(old, nd, 12); if (dx || dy) { nd = shift(nd, old, dx, dy); notes.push(`alinhado ${dx > 0 ? "+" : ""}${dx}, ${dy > 0 ? "+" : ""}${dy} px`); } }
+  if ($("#i-pal").checked) { quantize(nd, old); notes.push("paleta do mapa"); }
+  const f = +$("#i-feather").value; if (f) feather(nd, old, f);
+  x.putImageData(nd, 0, 0); edit.result = c; $("#i-split").value = 100;
+  $("#impinfo").textContent = notes.join(" · "); busy(); draw();
+}
+function gray(id, step) { const W = id.width, H = id.height, w = Math.floor(W / step), h = Math.floor(H / step), g = new Float32Array(w * h), d = id.data; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = ((y * step) * W + x * step) * 4; g[y * w + x] = d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11; } const e = new Float32Array(w * h); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const p = y * w + x; e[p] = Math.abs(g[p + 1] - g[p - 1]) + Math.abs(g[p + w] - g[p - w]); } return { e, w, h }; }
+function align(a, b, R) { // busca o deslocamento que mais casa as bordas (em meia resolução, refinado em 1 px)
+  const step = 2, A = gray(a, step), B = gray(b, step), r = Math.ceil(R / step); let best = [0, 0, -Infinity];
+  const score = (dx, dy) => { let s = 0; for (let y = r; y < A.h - r; y += 2) for (let x = r; x < A.w - r; x += 2) s += A.e[y * A.w + x] * B.e[(y - dy) * B.w + (x - dx)]; return s; };
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const s = score(dx, dy); if (s > best[2]) best = [dx, dy, s]; }
+  return [best[0] * step, best[1] * step, best[2]];
+}
+function shift(nd, old, dx, dy) { const W = nd.width, H = nd.height, out = new ImageData(W, H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const sx = x - dx, sy = y - dy, o = (y * W + x) * 4; const src = sx >= 0 && sy >= 0 && sx < W && sy < H ? nd.data : old.data, i = src === nd.data ? (sy * W + sx) * 4 : o; out.data[o] = src[i]; out.data[o + 1] = src[i + 1]; out.data[o + 2] = src[i + 2]; out.data[o + 3] = 255; } return out; }
+function quantize(nd, old) { // cada pixel vai para a cor mais próxima da paleta (paleta do mapa + cores da área antiga)
+  const cols = new Map(), od = old.data; for (let i = 0; i < od.length; i += 32) { const k = ((od[i] >> 3) << 10) | ((od[i + 1] >> 3) << 5) | (od[i + 2] >> 3); cols.set(k, (cols.get(k) || 0) + 1); }
+  const pal = [...[...cols.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k]) => [((k >> 10) & 31) * 8 + 4, ((k >> 5) & 31) * 8 + 4, (k & 31) * 8 + 4]),
+    ...palette.map((c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)))];
+  const d = nd.data, memo = new Map();
+  for (let i = 0; i < d.length; i += 4) {
+    const k = ((d[i] >> 2) << 12) | ((d[i + 1] >> 2) << 6) | (d[i + 2] >> 2); let best = memo.get(k);
+    if (best === undefined) { let bd = 1e9; for (let j = 0; j < pal.length; j++) { const p = pal[j], e = (p[0] - d[i]) ** 2 * 3 + (p[1] - d[i + 1]) ** 2 * 4 + (p[2] - d[i + 2]) ** 2 * 2; if (e < bd) { bd = e; best = j; } } memo.set(k, best); }
+    const p = pal[best]; d[i] = p[0]; d[i + 1] = p[1]; d[i + 2] = p[2];
+  }
+}
+function feather(nd, old, f) { const W = nd.width, H = nd.height, d = nd.data, o = old.data; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const t = Math.min(x, y, W - 1 - x, H - 1 - y) / f; if (t >= 1) continue; const i = (y * W + x) * 4; for (let k = 0; k < 3; k++) d[i + k] = o[i + k] + (d[i + k] - o[i + k]) * t; } }
+
+$("#b-cancel").onclick = () => { edit = null; editUI(); draw(); };
+$("#b-apply").onclick = async () => {
+  if (!edit) return;
+  const src = edit.result || edit.buf, note = edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "pincel/lagoa";
+  busy("aplicando no mapa…");
+  try {
+    const j = await api("/api/apply", { box: edit.box, png: src.toDataURL("image/png"), note });
+    for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
+    edit = null; editUI(); loadHist();
+  } catch (e) { alert("Erro ao aplicar: " + e.message); }
+  busy(); draw();
+};
+
+// ---------- exportar ----------
+$("#presets").innerHTML = "";
+$("#b-export").onclick = async () => {
+  if (curMode() === "generate" && !ref && !confirm("Sem ⭐ referência de estilo o Gemini não sabe o estilo do mapa. Exportar mesmo assim?")) return;
+  busy("montando o pacote…");
+  const r = await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ box: sel, ref, mode: curMode(), preset: curPreset, text: $("#extra").value }) });
+  const blob = await r.blob(), a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `tinymap_${sel[0]}_${sel[1]}.zip`; a.click(); busy();
+};
+$("#b-copy").onclick = async () => { await navigator.clipboard.writeText($("#prompt").value); $("#b-copy").textContent = "Copiado!"; setTimeout(() => ($("#b-copy").textContent = "Copiar prompt"), 1200); };
+$("#b-img").onclick = async () => {
+  const layerName = curMode() === "improve" ? "mixed" : "render";
+  const r = await fetch(`/api/crop?layer=${layerName}&x0=${sel[0]}&y0=${sel[1]}&x1=${sel[2]}&y1=${sel[3]}`);
+  try { await navigator.clipboard.write([new ClipboardItem({ "image/png": await r.blob() })]); $("#b-img").textContent = "Copiada!"; }
+  catch { $("#b-img").textContent = "Navegador bloqueou: use o .zip"; }
+  setTimeout(() => ($("#b-img").textContent = "Copiar imagem"), 1500);
+};
+$("#extra").addEventListener("input", refreshPrompt);
+$("#mode").addEventListener("change", selUI);
+$("#b-clear").onclick = () => setSel(null);
+document.querySelectorAll("[data-size]").forEach((b) => (b.onclick = () => {
+  const n = +b.dataset.size, c = sel ? [(sel[0] + sel[2]) / 2, (sel[1] + sel[3]) / 2] : S2W(cv.width / 2, cv.height / 2);
+  setSel([snap(c[0] - n / 2), snap(c[1] - n / 2), snap(c[0] - n / 2) + n, snap(c[1] - n / 2) + n]);
+}));
+
+// ---------- defeitos, histórico, publicar, busca ----------
+$("#b-scan").onclick = async () => { await api("/api/problems", {}); pollScan(); };
+async function pollScan() {
+  const j = await api("/api/problems"); problems = j.items || [];
+  $("#scanst").textContent = j.status === "procurando" ? `procurando… ${j.done}/${j.total} shots` : j.status === "pronto" ? `${problems.length} achados` : "";
+  $("#problist").innerHTML = problems.map((p, i) => `<div data-i="${i}"><span>${p.kind === "terra no rio" ? "🟧" : "🟦"} ${p.kind}</span><span class="sub">${(p.area * M.mpp * M.mpp / 10000).toFixed(2)} ha</span></div>`).join("");
+  draw(); if (j.status === "procurando") setTimeout(pollScan, 1500);
+}
+$("#problist").onclick = (e) => { const d = e.target.closest("[data-i]"); if (!d) return; const p = problems[+d.dataset.i], pad = 192; const b = [snap(p.box[0] - pad), snap(p.box[1] - pad), snap(p.box[2] + pad), snap(p.box[3] + pad)]; setSel(b); goBox(b); };
+async function loadHist() {
+  const h = await api("/api/history");
+  $("#histlist").innerHTML = h.length ? h.map((x) => `<div class="${x.undone ? "undone" : ""}" data-id="${x.id}"><span>${new Date(x.t * 1000).toLocaleTimeString("pt-BR")} · ${x.note || "edição"} · ${x.box[2] - x.box[0]}×${x.box[3] - x.box[1]}</span>${x.undone ? '<span class="sub">desfeito</span>' : '<button data-undo="1">Desfazer</button>'}</div>`).join("") : '<div class="sub">Nenhuma edição ainda.</div>';
+  window._hist = h;
+}
+$("#histlist").onclick = async (e) => {
+  const d = e.target.closest("[data-id]"); if (!d) return; const x = window._hist.find((h) => h.id === d.dataset.id);
+  if (e.target.dataset.undo) { if (!confirm("Desfazer esta edição no mapa?")) return; const j = await api("/api/undo", { id: x.id }); for (const [r, c] of j.shots) shotVer[`${r}_${c}`] = Date.now(); loadHist(); draw(); }
+  else goBox(x.box);
+};
+$("#b-pub").onclick = async () => { try { await api("/api/publish", {}); pollPub(); } catch (e) { alert(e.message); } };
+async function pollPub() { const j = await api("/api/publish"); $("#pubst").innerHTML = j.running ? "publicando…" : j.code === 0 ? 'publicado · <a href="http://127.0.0.1:8080" target="_blank">abrir site</a>' : j.code ? `erro (${j.code})` : ""; $("#b-pub").disabled = j.running; if (j.running) setTimeout(pollPub, 2000); }
+$("#q").oninput = () => { const q = $("#q").value.trim().toLowerCase(); const r = q.length < 2 ? [] : M.places.filter((p) => p.n.toLowerCase().includes(q)).slice(0, 30); $("#sres").style.display = r.length ? "block" : "none"; $("#sres").innerHTML = r.map((p) => `<div data-x="${p.x}" data-y="${p.y}">${p.n} <span class="sub">${p.k || ""}</span></div>`).join(""); };
+$("#sres").onclick = (e) => { const d = e.target.closest("[data-x]"); if (!d) return; goTo(+d.dataset.x, +d.dataset.y, 1); $("#sres").style.display = "none"; };
+
+// ---------- camadas, abas, teclado ----------
+const setLayer = (l) => { layer = l; [["#l-art", "art"], ["#l-ren", "ren"], ["#l-cur", "cur"]].forEach(([s, v]) => $(s).classList.toggle("on", v === l)); draw(); };
+$("#l-art").onclick = () => setLayer("art"); $("#l-ren").onclick = () => setLayer("ren"); $("#l-cur").onclick = () => setLayer("cur");
+["#o-area", "#o-grid", "#o-iso", "#o-prob"].forEach((s) => $(s).addEventListener("change", draw));
+function showTab(t) { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t)); document.querySelectorAll(".tab").forEach((d) => d.classList.toggle("on", d.id === `t-${t}`)); }
+$("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); if (b && b.dataset.tab === "hist") loadHist(); };
+$("#b-fit").onclick = fit;
+addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea, select")) return;
+  const k = e.key.toLowerCase();
+  if (e.key === " ") { spaceDown = true; e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); $("#b-undo").click(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (sel && e.key.startsWith("Arrow") && !edit) { e.preventDefault(); const d = e.shiftKey ? [0, 0, 16, 16] : [16, 16, 16, 16], s = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; setSel(e.shiftKey ? [sel[0], sel[1], sel[2] + s[0] * 16, sel[3] + s[1] * 16] : [sel[0] + s[0] * d[0], sel[1] + s[1] * d[1], sel[2] + s[0] * d[2], sel[3] + s[1] * d[3]]); return; }
+  const m = { h: () => setTool("pan"), s: () => setTool("sel"), r: () => setTool("ref"), m: () => setTool("measure"), b: () => setTool("pencil"), i: () => setTool("pick"), c: () => setTool("clone"), l: () => $("#b-lake").click(), f: fit, v: () => setLayer(layer === "cur" ? "art" : "cur"), escape: () => { meas = null; $("#f-meas").textContent = ""; draw(); } };
+  if (m[k]) { e.preventDefault(); m[k](); }
+});
+addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; });
+addEventListener("beforeunload", (e) => { if (edit) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------- início ----------
+(async () => {
+  M = await api("/api/meta"); artSet = new Set(M.art);
+  $("#title").textContent = `${M.title || M.name} · oficina`;
+  $("#presets").innerHTML = M.presets.map((p) => `<button class="chip" data-p="${p}">${PRESET_LABEL[p] || p}</button>`).join("");
+  $("#presets").onclick = (e) => { const b = e.target.closest("[data-p]"); if (!b) return; curPreset = curPreset === b.dataset.p ? "" : b.dataset.p; document.querySelectorAll("#presets button").forEach((x) => x.classList.toggle("on", x.dataset.p === curPreset)); refreshPrompt(); };
+  setTool("pan"); fit(); loadHist();
+  api("/api/palette").then((p) => { palette = p; palUI(); }).catch(() => {});  // 1ª vez é lenta: em segundo plano
+  const pr = await api("/api/problems"); if (pr.items?.length) { problems = pr.items; pollScan(); }
+})();
+</script>
+</body>
+</html>

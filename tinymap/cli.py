@@ -11,6 +11,7 @@
   tinymap teacher  <region.yaml> --backend qwen|gemini|folder --out pairs_v1 [--n 120] [--lora ...]
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
+  tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
   tinymap try      <region.yaml> --lora X.safetensors [--at lat,lon]   one block, to judge a LoRA
   tinymap generate <region.yaml> --lora X.safetensors [--gpu 0]       paint the map (one worker)
@@ -129,6 +130,9 @@ def main() -> None:
     elif a.cmd == "sheets":
         from .teacher import contact_sheet
         print(contact_sheet(run.dir / a.out))
+    elif a.cmd == "edit":
+        from .mapedit import MapEdit, serve as serve_edit
+        serve_edit(MapEdit(run, a.region), a.host, 8766 if a.port == 8765 else a.port)
     elif a.cmd == "review":
         from .review import Review, serve
         serve(Review(run, a.out, a.region, a.pilot), a.host, a.port)

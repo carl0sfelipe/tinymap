@@ -15,21 +15,25 @@ BG = (14, 26, 34)  # fundo do viewer (site/index.html --bg)
 
 
 def _masked(run: Run):
-    """Arte recortada pelo polígono da área do mapa (view.area_px): fora dele o modelo pintava em cima
-    de chão vazio e inventava cidade e canais. Grava em art_site/ e devolve a pasta."""
+    """O que o site mostra em cada shot planejado: o render (maquete + satélite) por baixo, a arte por
+    cima (com transparência onde a oficina criou arte parcial), recortado pelo polígono da área do mapa
+    (fora dele o modelo inventava cidade e canais). Grava em art_site/ e devolve a pasta."""
     from PIL import Image, ImageDraw
     v = run.view
     s = v["shot_px"]
     out = run.dir / "art_site"
     out.mkdir(exist_ok=True)
     poly = [tuple(p) for p in v["area_px"]]
-    for p in sorted((run.dir / "art").glob("r*_c*.png")):
-        r, c = (int(x[1:]) for x in p.stem.split("_"))
-        im = Image.open(p).convert("RGB")
+    for c, r in v["shots"]:
+        ren, art = run.dir / "render" / f"r{r}_c{c}.png", run.dir / "art" / f"r{r}_c{c}.png"
+        if not ren.exists() and not art.exists():
+            continue
+        im = Image.open(ren).convert("RGBA") if ren.exists() else Image.new("RGBA", (s, s), BG + (255,))
+        if art.exists():
+            im.alpha_composite(Image.open(art).convert("RGBA"))
         m = Image.new("L", im.size, 0)
         ImageDraw.Draw(m).polygon([(x - c * s, y - r * s) for x, y in poly], fill=255)
-        bg = Image.new("RGB", im.size, BG)
-        Image.composite(im, bg, m).save(out / p.name)
+        Image.composite(im.convert("RGB"), Image.new("RGB", im.size, BG), m).save(out / f"r{r}_c{c}.png")
     return out
 
 
