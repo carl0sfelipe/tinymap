@@ -7,67 +7,119 @@
 <link rel="icon" href="data:,">
 <style>
 :root {
-  --bg: #14171b; --panel: #1c2026; --panel2: #252a31; --line: #343b44; --text: #e7e9ec; --muted: #98a2ad;
-  --accent: #5aa9ff; --ok: #4cc38a; --warn: #f0b84a; --bad: #ef6b6b; --sel: #ff4fd8; --ref: #ffb020;
+  --bg: #121418; --panel: #1a1d22; --panel2: #23272e; --panel3: #2b3038; --line: #2f353d; --text: #e8eaed; --muted: #959fab;
+  --accent: #5aa9ff; --accent2: #2f7fd6; --ok: #43c08a; --warn: #f0b84a; --bad: #ef6b6b;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
 button, input, select, textarea { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
-button { padding: 5px 9px; cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: .45; cursor: default; }
-button.on { background: var(--accent); color: #0b1220; border-color: var(--accent); }
-button.ok { background: var(--ok); color: #06150d; border-color: var(--ok); font-weight: 600; }
-button.chip { border-radius: 99px; padding: 3px 10px; }
-kbd { font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+button { padding: 5px 10px; cursor: pointer; transition: background .12s, border-color .12s; }
+button:hover:not(:disabled) { border-color: var(--accent); background: var(--panel3); }
+button:disabled { opacity: .4; cursor: default; }
+button.on { background: var(--accent); color: #08121f; border-color: var(--accent); }
+button.ok { background: var(--ok); color: #04150c; border-color: var(--ok); font-weight: 600; }
+button.ok:hover:not(:disabled) { background: #55d39c; }
+button.chip { border-radius: 99px; padding: 3px 10px; font-size: 12px; }
+select { padding: 3px 6px; }
+input[type=range] { accent-color: var(--accent); width: 110px; vertical-align: middle; }
+input[type=checkbox] { accent-color: var(--accent); }
+input[type=color] { width: 30px; height: 26px; padding: 1px; cursor: pointer; }
+kbd { font: 11px ui-monospace, monospace; color: var(--text); background: var(--panel3); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+button kbd { background: rgba(0,0,0,.15); border-color: rgba(0,0,0,.25); color: inherit; }
 #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
-header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-header h1 { font-size: 14px; margin: 0; }
-header .grp { display: flex; gap: 4px; align-items: center; }
-header label { color: var(--muted); display: flex; gap: 4px; align-items: center; }
+/* topo */
+header { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 14px; margin: 0 4px 0 0; font-weight: 650; letter-spacing: .01em; }
+header .grp { display: flex; gap: 6px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--panel2); padding: 5px 11px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: #08121f; }
+#layers { position: relative; }
+#layers summary { list-style: none; cursor: pointer; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); user-select: none; }
+#layers summary::-webkit-details-marker { display: none; }
+#layers[open] summary { border-color: var(--accent); }
+#layers .menu { position: absolute; top: 34px; left: 0; z-index: 20; min-width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); display: grid; gap: 6px; }
+#layers .menu label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 #search { position: relative; }
-#search input { width: 220px; padding: 4px 8px; }
-#sres { position: absolute; top: 30px; left: 0; width: 320px; max-height: 50vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: none; z-index: 9; }
-#sres div { padding: 6px 8px; cursor: pointer; }
+#search input { width: 210px; padding: 5px 9px; }
+#sres { position: absolute; top: 32px; left: 0; width: 320px; max-height: 50vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: none; z-index: 20; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+#sres div { padding: 7px 10px; cursor: pointer; }
 #sres div:hover { background: var(--panel2); }
-main { display: grid; grid-template-columns: 46px minmax(0, 1fr) 320px; min-height: 0; }
-#tools { display: flex; flex-direction: column; gap: 3px; padding: 6px 5px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
-#tools button { width: 36px; height: 34px; padding: 0; font-size: 16px; flex: 0 0 auto; }
-#tools hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.big-btn { font-size: 13px; font-weight: 600; padding: 6px 12px; border-width: 1px; }
+.big-btn.on { background: var(--warn); color: #1b1300; border-color: var(--warn); box-shadow: 0 0 0 3px rgba(240,184,74,.25); }
+#b-help { width: 30px; padding: 5px 0; font-weight: 700; }
+/* meio */
+main { display: grid; grid-template-columns: 54px minmax(0, 1fr) 310px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+#tools { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0 8px; background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; scrollbar-width: none; }
+#tools .glab { width: 100%; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-align: center; padding: 8px 0 3px; border-top: 1px solid var(--line); margin-top: 3px; }
+#tools .glab:first-child { border-top: 0; margin-top: 0; }
+#tools button { width: 40px; height: 36px; padding: 0; font-size: 17px; flex: 0 0 auto; border-color: transparent; background: transparent; border-radius: 8px; }
+#tools button:hover { background: var(--panel2); border-color: var(--line); }
+#tools button.on { background: var(--accent2); border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+#center { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+#optbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; padding: 6px 10px; min-height: 46px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#opt-title { display: flex; align-items: center; gap: 8px; padding-right: 14px; margin-right: 4px; font-size: 13px; }
+#ot-icon { font-size: 18px; }
+#optbar .opt { display: none; align-items: center; gap: 6px; padding: 0 12px; border-left: 1px solid var(--line); min-height: 30px; }
+#optbar .opt.show { display: flex; }
+#optbar .opt label { display: flex; align-items: center; gap: 6px; }
+#optbar .num { font: 12px ui-monospace, monospace; color: var(--muted); min-width: 26px; }
+#optbar .lbl { font-size: 11px; }
+#pal { display: grid; grid-template-columns: repeat(16, 13px); grid-auto-rows: 13px; gap: 2px; }
+#pal div { border-radius: 2px; cursor: pointer; outline: 1px solid rgba(0,0,0,.35); }
+#pal div:hover { outline: 2px solid #fff; z-index: 1; }
 #wrap { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
-#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0b0d10; touch-action: none; }
-#editbar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: none; gap: 8px; align-items: center;
-  background: rgba(20,23,27,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; z-index: 5; }
-#editbar input[type=range] { width: 160px; }
-#busy { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.6); padding: 4px 10px; border-radius: 6px; display: none; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0a0c0f; touch-action: none; }
+#editbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; align-items: center;
+  background: rgba(22,25,30,.95); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px 7px 14px; z-index: 5; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+#editbar input[type=range] { width: 130px; }
+#ebinfo { font-size: 12px; }
+#ebinfo b { color: var(--warn); }
+#busy { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75); padding: 5px 12px; border-radius: 6px; display: none; z-index: 6; }
+#toast { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(22,25,30,.96); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 16px; display: none; z-index: 6; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+/* direita */
 aside { border-left: 1px solid var(--line); background: var(--panel); display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 #tabs { display: flex; border-bottom: 1px solid var(--line); }
-#tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 8px 4px; color: var(--muted); border-bottom: 2px solid transparent; }
-#tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-.tab { padding: 10px; overflow: auto; display: none; }
+#tabs button { flex: 1; border: 0; border-radius: 0; background: none; padding: 10px 4px; color: var(--muted); border-bottom: 2px solid transparent; }
+#tabs button.on { color: var(--text); border-bottom-color: var(--accent); background: none; }
+.tab { padding: 12px; overflow: auto; display: none; }
 .tab.on { display: block; }
-.tab h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.tab h3 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
 .tab h3:first-child { margin-top: 0; }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .big { font: 600 20px ui-monospace, monospace; }
 .sub { color: var(--muted); font-size: 12px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-textarea { width: 100%; min-height: 56px; padding: 6px; resize: vertical; }
+textarea { width: 100%; min-height: 56px; padding: 7px; resize: vertical; }
 #prompt { min-height: 110px; font-size: 11px; color: var(--muted); }
-.list div { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
-.list div:hover { border-color: var(--accent); }
+.list div { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.list div:hover { border-color: var(--accent); background: var(--panel2); }
 .list .undone { opacity: .5; }
-#pal { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; }
-#pal div { aspect-ratio: 1; border-radius: 2px; cursor: pointer; }
-#color { width: 38px; height: 26px; padding: 0; }
-footer { display: flex; gap: 14px; padding: 4px 10px; background: var(--panel); border-top: 1px solid var(--line); color: var(--muted); font: 12px ui-monospace, monospace; flex-wrap: wrap; }
-footer a { color: var(--accent); }
-.note { padding: 8px; border-radius: 6px; background: var(--panel2); color: var(--muted); font-size: 12px; margin: 6px 0; }
+.note { padding: 9px 10px; border-radius: 7px; background: var(--panel2); color: var(--muted); font-size: 12px; margin: 6px 0; }
 .warn { color: var(--warn); }
-.big-btn { font-size: 14px; font-weight: 600; padding: 7px 12px; border-width: 2px; }
-.big-btn.on { background: var(--warn); color: #1b1300; border-color: var(--warn); }
-#toast { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: rgba(20,23,27,.95); border: 1px solid var(--line);
-  border-radius: 8px; padding: 8px 14px; display: none; z-index: 6; font-size: 14px; }
+/* rodapé */
+footer { display: flex; align-items: center; gap: 14px; padding: 5px 12px; background: var(--panel); border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; min-height: 28px; }
+footer .spacer { flex: 1; }
+#hint { color: var(--text); }
+#hint b { color: var(--accent); }
+#editinfo { color: var(--warn); }
+#f-pos, #f-ll, #f-zoom, #f-meas { font: 11px ui-monospace, monospace; }
+/* dica flutuante, ajuda, boas-vindas */
+#tip { position: fixed; z-index: 50; pointer-events: none; display: none; max-width: 280px; background: #0d0f12; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+#tip .tn { font-weight: 650; display: flex; justify-content: space-between; gap: 10px; }
+#tip .th { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; display: none; align-items: center; justify-content: center; }
+.overlay.on { display: flex; }
+.overlay .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; max-width: 760px; max-height: 86vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.overlay h2 { margin: 0 0 12px; font-size: 18px; }
+.overlay h3 { margin: 16px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.overlay .x { position: absolute; top: 12px; right: 12px; width: 30px; padding: 4px 0; }
+.overlay ol { padding-left: 20px; line-height: 1.6; }
+.overlay ol li { margin-bottom: 8px; }
+.hgrid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; align-items: baseline; }
+.hgrid .ti { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -78,75 +130,106 @@ footer a { color: var(--accent); }
       <button id="q-road" class="big-btn" title="Ligue e clique num lago: ele vira rua e já vai para o mapa (Ctrl+Z desfaz)">🛣️ Lago → rua</button>
       <button id="q-land" class="big-btn" title="Ligue e clique num lago: ele vira terreno e já vai para o mapa (Ctrl+Z desfaz)">🌳 Lago → terreno</button>
     </div>
-    <div id="search"><input id="q" placeholder="Buscar lugar…" autocomplete="off"><div id="sres"></div></div>
-    <div class="grp">
-      <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button>
-      <button id="l-ren" title="Só a maquete com satélite">Maquete</button>
-      <button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o botão do meio; tecla T)">Cortina</button>
-      <button id="l-sat" title="Só a foto do satélite, no ângulo do mapa (a realidade, sem o OSM pintado)">Satélite</button>
+    <div id="search"><input id="q" placeholder="🔎 Buscar lugar…" autocomplete="off"><div id="sres"></div></div>
+    <div class="seg" title="O que aparece no mapa">
+      <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button><button id="l-ren" title="Só a maquete com satélite">Maquete</button><button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o botão do meio; tecla T)">Cortina</button><button id="l-sat" title="Só a foto do satélite, no ângulo do mapa">Satélite</button>
     </div>
-    <div class="grp">
-      <label title="Segure Z para ver o satélite numa lupa em volta do cursor">🔍 lupa (Z)</label>
-      <label><input type="checkbox" id="o-satsel"> satélite na seleção</label>
-    </div>
-    <div class="grp">
-      <label><input type="checkbox" id="o-area" checked> área</label>
-      <label><input type="checkbox" id="o-grid"> shots</label>
-      <label><input type="checkbox" id="o-iso"> grade iso</label>
-      <label><input type="checkbox" id="o-prob"> defeitos</label>
-    </div>
+    <details id="layers"><summary>Camadas ▾</summary>
+      <div class="menu">
+        <label><input type="checkbox" id="o-area" checked> contorno da área do mapa</label>
+        <label><input type="checkbox" id="o-grid"> grade dos pedaços (shots)</label>
+        <label><input type="checkbox" id="o-iso"> grade isométrica do terreno</label>
+        <label><input type="checkbox" id="o-prob"> defeitos encontrados</label>
+        <label><input type="checkbox" id="o-satsel"> satélite dentro da área ⬚</label>
+        <div class="sub" style="margin-top:6px">Dica: segure <kbd>Z</kbd> para uma lupa de satélite.</div>
+      </div>
+    </details>
     <div class="grp" style="margin-left:auto">
       <span class="sub" id="pubst"></span>
+      <button id="b-help" title="Atalhos e ajuda (?)">?</button>
       <button id="b-pub" title="Reconstrói o site (porta 8080) com as edições">Publicar no site</button>
     </div>
   </header>
   <main>
     <div id="tools">
-      <button data-tool="pan" title="Mover o mapa (H, ou segure espaço)">✋</button>
-      <button data-tool="sel" title="Área para exportar/editar (S) · Shift = quadrado">⬚</button>
-      <button data-tool="ref" title="Referência de estilo (R): um pedaço de arte boa">⭐</button>
-      <button data-tool="measure" title="Régua (M): metros no chão e andares na vertical">📏</button>
-      <hr>
-      <button data-tool="wand" title="Varinha mágica (W): seleciona pela cor · Shift soma · Alt tira">🪄</button>
-      <button data-tool="lasso" title="Laço (Q): clique os cantos, duplo clique fecha · Shift soma · Alt tira">➰</button>
-      <button data-tool="move" title="Mover o que foi colado (V) · Enter fixa · Esc cancela">✥</button>
-      <hr>
-      <button data-tool="pencil" title="Lápis (B) · Shift+clique = linha reta · Alt+clique pega a cor">✏️</button>
-      <button data-tool="fill" title="Balde de tinta (G) · tolerância e contíguo na aba Editar">🪣</button>
-      <button data-tool="pick" title="Conta-gotas (I)">💧</button>
-      <button data-tool="clone" title="Carimbo (C): Alt+clique define de onde copiar">🧬</button>
-      <button data-tool="dither" title="Pontilhado (D): xadrez com as duas cores, o sombreado da pixel art">▦</button>
-      <button data-tool="eraser" title="Borracha (E): volta ao original ou revela a maquete">🧽</button>
-      <button data-tool="tree" title="Árvore (A): clique planta uma, arraste planta várias · tipo, tamanho e tom na aba Editar">🌳</button>
-      <button data-tool="iso" title="Prédio isométrico (U): arraste a diagonal da base · Shift = base quadrada · andares na aba Editar">🏠</button>
-      <button data-tool="water" title="Editar água (J): clique num lago/rio e arraste os vértices · clique na borda cria vértice · Shift+clique apaga vértice">🌊</button>
-      <button data-tool="lakedel" title="Excluir lago (K): clique num lago que não existe; ele sai dos dados (OSM local) e do desenho">🚱</button>
-      <button id="b-lake" title="Apagar lagoa (L): troca a água inventada pelo terreno em volta (na seleção mágica, se houver)">🏝️</button>
-      <hr>
-      <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
-      <button id="b-fit" title="Ver o mapa inteiro (F)">⤢</button>
+      <div class="glab">Navegar</div>
+      <button data-tool="pan" data-name="Mover o mapa" data-key="H" data-hint="Arraste para mover o mapa; a roda do mouse dá zoom. Com qualquer ferramenta: segure espaço ou use o botão direito.">✋</button>
+      <button data-tool="measure" data-name="Régua" data-key="M" data-hint="Arraste para medir: metros no chão, ou andares se a linha for vertical.">📏</button>
+      <button id="b-fit" class="act" data-name="Ver o mapa inteiro" data-key="F" data-hint="Enquadra o mapa todo na tela.">⤢</button>
+      <div class="glab">Selecionar</div>
+      <button data-tool="sel" data-name="Área" data-key="S" data-hint="Arraste para marcar uma área (Shift = quadrada). Serve para exportar ao Gemini e para limitar a edição. Setas movem 16 px.">⬚</button>
+      <button data-tool="ref" data-name="Referência de estilo" data-key="R" data-hint="Arraste sobre um pedaço de arte bonito: ele vai junto no pacote do Gemini como modelo.">⭐</button>
+      <button data-tool="wand" data-name="Varinha mágica" data-key="W" data-hint="Clique numa cor para selecioná-la. Shift soma, Alt tira. Depois use as ações da seleção na barra de cima.">🪄</button>
+      <button data-tool="lasso" data-name="Laço" data-key="Q" data-hint="Clique os cantos; Enter ou duplo clique fecha. Shift soma, Alt tira.">➰</button>
+      <button data-tool="move" data-name="Mover colado" data-key="V" data-hint="Arraste o que foi colado (Ctrl+V). Enter fixa, Esc cancela.">✥</button>
+      <div class="glab">Pintar</div>
+      <button data-tool="pencil" data-name="Lápis" data-key="B" data-hint="Pinte com a cor principal. Shift+clique traça linha reta; Alt+clique pega a cor.">✏️</button>
+      <button data-tool="fill" data-name="Balde" data-key="G" data-hint="Clique para pintar a região da mesma cor; a tolerância controla o quanto vaza.">🪣</button>
+      <button data-tool="pick" data-name="Conta-gotas" data-key="I" data-hint="Clique no mapa para pegar a cor.">💧</button>
+      <button data-tool="clone" data-name="Carimbo" data-key="C" data-hint="Alt+clique escolhe de onde copiar; depois pinte onde quer a cópia.">🧬</button>
+      <button data-tool="dither" data-name="Pontilhado" data-key="D" data-hint="Pinta em xadrez com as duas cores: o sombreado clássico da pixel art.">▦</button>
+      <button data-tool="eraser" data-name="Borracha" data-key="E" data-hint="Devolve os pixels ao original (ou à maquete).">🧽</button>
+      <div class="glab">Mapa</div>
+      <button data-tool="tree" data-name="Árvore" data-key="A" data-hint="Clique planta uma árvore; arraste para plantar várias. Cada uma sai diferente.">🌳</button>
+      <button data-tool="iso" data-name="Prédio" data-key="U" data-hint="Arraste a diagonal da base no chão; Shift deixa a base quadrada.">🏠</button>
+      <button id="b-lake" class="act" data-name="Apagar lagoa" data-key="L" data-hint="Troca a água inventada da área (ou da seleção mágica) pelo terreno em volta.">🏝️</button>
+      <button data-tool="water" data-name="Lagos e rios (dados)" data-key="J" data-hint="Clique num lago ou rio dos dados e arraste os vértices. Clique na borda cria vértice; Shift+clique apaga.">🌊</button>
+      <button data-tool="lakedel" data-name="Excluir lago" data-key="K" data-hint="Clique num lago que não existe na realidade: ele sai dos dados e do desenho.">🚱</button>
+      <div class="glab"></div>
+      <button id="b-undo" class="act" data-name="Desfazer" data-key="Ctrl+Z" data-hint="Desfaz o último passo (ou a última troca aplicada no mapa).">↶</button>
     </div>
-    <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div><div id="toast"></div>
-      <div id="editbar"><span class="sub" id="ebinfo"></span><label class="sub">antes <input type="range" id="i-split" min="0" max="100" value="100"> depois</label>
-        <button class="ok" id="b-apply">Aplicar no mapa</button><button id="b-cancel">Descartar</button></div></div>
+    <div id="center">
+      <div id="optbar">
+        <div id="opt-title"><span id="ot-icon">✋</span><b id="ot-name">Mover o mapa</b></div>
+        <div class="opt" data-for="pan"><span class="sub">Roda do mouse = zoom · segure <kbd>espaço</kbd> para mover com qualquer ferramenta · <kbd>Z</kbd> lupa de satélite</span></div>
+        <div class="opt" data-for="measure"><span class="sub" id="o-meas">Arraste no mapa para medir.</span></div>
+        <div class="opt" data-for="sel">
+          <span class="sub">tamanho</span><button class="chip" data-size="512">512</button><button class="chip" data-size="1024">1024</button><button class="chip" data-size="1536">1536</button><button class="chip" data-size="2048">2048</button>
+          <label class="sub"><input type="checkbox" id="snap" checked> encaixar 16 px</label><button id="b-clear">Limpar</button><a id="gmaps" target="_blank" rel="noopener" class="sub"></a>
+        </div>
+        <div class="opt" data-for="ref"><button id="b-noref">Tirar referência</button><span class="sub">Ela aparece em laranja e vai no pacote do Gemini.</span></div>
+        <div class="opt" data-for="pencil fill dither iso pick wand lasso tree-color">
+          <input type="color" id="color" value="#4a7a3a" title="cor principal"><span class="c2" data-for2="dither iso"><input type="color" id="color2" value="#2e5a2a" title="cor secundária"><button id="b-swap" title="Trocar as cores (X)">⇄</button></span>
+          <span class="sub lbl" id="col-lbl"></span>
+        </div>
+        <div class="opt" data-for="pencil fill dither iso pick"><div id="pal" title="clique = cor principal · botão direito = secundária"></div></div>
+        <div class="opt" data-for="pencil clone dither eraser"><label>tamanho <input type="range" id="bsize" min="1" max="24" value="2"></label><span id="bsv" class="num">2</span></div>
+        <div class="opt" data-for="fill wand"><label>tolerância <input type="range" id="tol" min="0" max="120" value="24"></label><span id="tolv" class="num">24</span><label><input type="checkbox" id="contig" checked> só a região ligada</label></div>
+        <div class="opt" data-for="fill"><span class="sub">trocar cor em toda a área:</span><input type="color" id="rep-from" value="#3f7fc4" title="cor a trocar"><button id="b-repick" title="Clique no mapa para pegar a cor a trocar">pegar</button><span class="sub">→ principal</span><button id="b-replace">Trocar</button></div>
+        <div class="opt" data-for="clone"><span class="sub" id="clone-st">origem: Alt+clique no mapa</span></div>
+        <div class="opt" data-for="eraser"><label>volta para <select id="erase-src"><option value="base">o original</option><option value="ren">a maquete</option></select></label></div>
+        <div class="opt" data-for="iso"><label>andares <input type="number" id="iso-floors" min="1" max="40" value="2" style="width:56px"></label><span class="sub">telhado = principal · paredes = secundária</span></div>
+        <div class="opt" data-for="tree">
+          <label>tipo <select id="tr-type"><option value="round">copa redonda</option><option value="bush">arbusto</option><option value="palm">palmeira</option><option value="araucaria">araucária</option><option value="mix">misturar</option></select></label>
+          <label>tamanho <input type="range" id="tr-size" min="3" max="24" value="8"></label><span id="tr-sv" class="num">8 px ≈ 6 m</span>
+          <label>espaçamento <input type="range" id="tr-gap" min="50" max="300" value="120"></label><span id="tr-gv" class="num">1,2×</span>
+          <label>tom <select id="tr-tone"><option value="map">verde do mapa</option><option value="forest">mata escura</option><option value="dry">seco</option><option value="color">cor escolhida</option></select></label>
+        </div>
+        <div class="opt" data-for="wand lasso move">
+          <span class="sub" id="maskinfo">nenhuma</span>
+          <button class="chip" id="m-all">tudo</button><button class="chip" id="m-inv">inverter</button><button class="chip" id="m-grow">+ expandir</button><button class="chip" id="m-shrink">− contrair</button><button class="chip" id="m-clear">limpar</button>
+        </div>
+        <div class="opt" data-for="wand lasso">
+          <button class="chip" id="m-fill" title="Pinta a seleção com a cor principal">pintar</button><button class="chip" id="m-tex" title="Copia textura de onde você deu Alt+clique com o carimbo">textura</button><button class="chip" id="m-copy" title="Ctrl+C">copiar</button><button class="chip" id="m-paste" title="Ctrl+V">colar</button>
+        </div>
+        <div class="opt" data-for="move"><button class="chip" id="m-flip">↔ espelhar</button><button class="chip ok" id="m-commit">fixar (Enter)</button></div>
+        <div class="opt" data-for="water lakedel"><span class="sub" id="winfo">Clique num lago ou rio.</span></div>
+        <div class="opt" data-for="water"><button class="chip ok" id="w-save" disabled>Salvar forma</button><button class="chip" id="w-cancel" disabled>Cancelar</button><button class="chip" id="w-new" title="Clique os cantos no mapa, Enter fecha">+ água nova</button></div>
+      </div>
+      <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div><div id="toast"></div>
+        <div id="editbar"><span id="ebinfo"></span><label class="sub">antes <input type="range" id="i-split" min="0" max="100" value="100"> depois</label>
+          <button id="b-cancel">Descartar</button><button class="ok" id="b-apply">Aplicar no mapa <kbd>Ctrl+Enter</kbd></button></div></div>
+    </div>
     <aside>
       <div id="tabs">
-        <button data-tab="sel" class="on">Seleção</button>
-        <button data-tab="ed">Editar</button>
+        <button data-tab="sel" class="on">Exportar</button>
         <button data-tab="imp">Importar</button>
         <button data-tab="prob">Defeitos</button>
         <button data-tab="hist">Histórico</button>
       </div>
       <div class="tab on" id="t-sel">
-        <h3>Seleção</h3>
-        <div id="selinfo" class="note">Escolha a ferramenta ⬚ e arraste no mapa. O tamanho aparece aqui, em pixels e em metros.</div>
-        <div class="row">
-          <span class="sub">tamanho:</span>
-          <button class="chip" data-size="512">512</button><button class="chip" data-size="1024">1024</button>
-          <button class="chip" data-size="1536">1536</button><button class="chip" data-size="2048">2048</button>
-        </div>
-        <div class="row"><label class="sub"><input type="checkbox" id="snap" checked> encaixar em 16 px</label>
-          <button id="b-clear">Limpar</button><a id="gmaps" target="_blank" rel="noopener" class="sub"></a></div>
+        <h3>Área selecionada</h3>
+        <div id="selinfo" class="note">Use a ferramenta ⬚ (tecla S) e arraste no mapa. O tamanho aparece aqui, em pixels e em metros.</div>
         <h3>Referência de estilo ⭐</h3>
         <div id="refinfo" class="note">Opcional. Com ⭐ marque um pedaço de arte que ficou bom: ele vai junto como modelo de estilo. Obrigatório para gerar onde ainda não há arte.</div>
         <h3>Exportar para o Gemini</h3>
@@ -164,7 +247,7 @@ footer a { color: var(--accent); }
       </div>
       <div class="tab" id="t-imp">
         <h3>Importar a versão melhorada</h3>
-        <div class="note">Com a mesma seleção ativa, <b>cole (Ctrl+V)</b> a imagem que o Gemini devolveu ou escolha o arquivo. A oficina ajusta o tamanho para a seleção.</div>
+        <div class="note">Com a mesma área ⬚ ativa, <b>cole (Ctrl+V)</b> a imagem que o Gemini devolveu ou escolha o arquivo. A oficina ajusta o tamanho, alinha e ajusta a paleta.</div>
         <div class="row"><input type="file" id="file" accept="image/*"></div>
         <h3>Ajustes</h3>
         <div class="row"><label><input type="checkbox" id="i-align" checked> alinhar sozinho (até ±12 px)</label></div>
@@ -174,50 +257,9 @@ footer a { color: var(--accent); }
         <div class="row"><button id="b-reproc" disabled>Refazer ajustes</button></div>
         <div class="sub" id="impinfo"></div>
       </div>
-      <div class="tab" id="t-ed">
-        <div class="note">Pinte direto no mapa: a oficina abre a área em volta do clique (ou usa a ⬚). Nada vai para o mapa até “Aplicar”.</div>
-        <h3>Cores</h3>
-        <div class="row"><input type="color" id="color" value="#4a7a3a" title="cor principal"><input type="color" id="color2" value="#2e5a2a" title="cor secundária (pontilhado, paredes)">
-          <button id="b-swap" title="Trocar as cores (X)">⇄</button><label>tamanho <input type="range" id="bsize" min="1" max="24" value="2"></label><span id="bsv">2</span></div>
-        <div id="pal"></div>
-        <h3>Balde e varinha</h3>
-        <div class="row"><label>tolerância <input type="range" id="tol" min="0" max="120" value="24"></label><span id="tolv">24</span>
-          <label><input type="checkbox" id="contig" checked> contíguo</label></div>
-        <h3>Seleção mágica</h3>
-        <div class="row"><span class="sub" id="maskinfo">nenhuma</span></div>
-        <div class="chips">
-          <button class="chip" id="m-all">tudo</button><button class="chip" id="m-inv">inverter</button>
-          <button class="chip" id="m-grow">expandir</button><button class="chip" id="m-shrink">contrair</button><button class="chip" id="m-clear">limpar</button>
-        </div>
-        <div class="chips" style="margin-top:6px">
-          <button class="chip" id="m-fill" title="Pinta a seleção mágica com a cor principal">preencher com cor</button>
-          <button class="chip" id="m-tex" title="Copia textura de onde você deu Alt+clique com o carimbo">preencher com textura</button>
-          <button class="chip" id="m-copy" title="Ctrl+C">copiar</button><button class="chip" id="m-paste" title="Ctrl+V">colar</button>
-          <button class="chip" id="m-flip" title="Espelha o que foi colado">espelhar</button><button class="chip" id="m-commit" title="Enter">fixar</button>
-        </div>
-        <h3>Trocar cor</h3>
-        <div class="row"><input type="color" id="rep-from" value="#3f7fc4" title="cor a trocar"><button id="b-repick" title="Clique no mapa para pegar a cor a trocar">pegar</button>
-          <span class="sub">→ cor principal</span><button id="b-replace">Trocar</button></div>
-        <h3>Árvores 🌳</h3>
-        <div class="row"><label>tipo <select id="tr-type"><option value="round">copa redonda</option><option value="bush">arbusto</option><option value="palm">palmeira</option><option value="araucaria">araucária</option><option value="mix">misturar</option></select></label></div>
-        <div class="row"><label>tamanho <input type="range" id="tr-size" min="3" max="24" value="8"></label><span id="tr-sv">8 px ≈ 6 m</span></div>
-        <div class="row"><label>espaçamento <input type="range" id="tr-gap" min="50" max="300" value="120"></label><span id="tr-gv">1,2×</span></div>
-        <div class="row"><label>tom <select id="tr-tone"><option value="map">verde do mapa</option><option value="forest">mata escura</option><option value="dry">seco</option><option value="color">cor principal</option></select></label></div>
-        <h3>Lagos e rios (dados)</h3>
-        <div class="note" id="winfo">Com 🌊, clique num lago ou rio para editar o contorno: arraste os vértices, clique na borda para criar um, Shift+clique para apagar. 🚱 exclui um lago inteiro.</div>
-        <div class="chips">
-          <button class="chip ok" id="w-save" disabled>Salvar forma</button><button class="chip" id="w-cancel" disabled>Cancelar</button>
-          <button class="chip" id="w-new" title="Clique os cantos no mapa, Enter fecha">Desenhar água nova</button>
-        </div>
-        <h3>Borracha e prédio</h3>
-        <div class="row"><label>borracha volta para <select id="erase-src"><option value="base">o original</option><option value="ren">a maquete</option></select></label></div>
-        <div class="row"><label>prédio: <input type="number" id="iso-floors" min="1" max="40" value="2" style="width:56px"> andares</label>
-          <span class="sub">telhado = principal, paredes = secundária</span></div>
-        <div class="sub" id="editinfo" style="margin-top:8px">Nada em edição.</div>
-      </div>
       <div class="tab" id="t-prob">
         <h3>Caçador de lagos</h3>
-        <div class="note">Compara a arte com a maquete e lista a água inventada e a terra pintada no rio, das maiores para as menores. Clique para ir até lá; a seleção já fica pronta para consertar ou exportar.</div>
+        <div class="note">Compara a arte com a maquete e lista a água inventada e a terra pintada no rio, das maiores para as menores. Clique para ir até lá.</div>
         <div class="row"><button id="b-scan">Procurar no mapa todo</button><span class="sub" id="scanst"></span></div>
         <div class="list" id="problist"></div>
       </div>
@@ -227,8 +269,38 @@ footer a { color: var(--accent); }
       </div>
     </aside>
   </main>
-  <footer><span id="f-pos">—</span><span id="f-ll"></span><span id="f-zoom"></span><span id="f-meas"></span></footer>
+  <footer><span id="hint"></span><span id="editinfo"></span><span class="spacer"></span><span id="f-meas"></span><span id="f-pos">—</span><span id="f-ll"></span><span id="f-zoom"></span></footer>
 </div>
+<div id="tip"></div>
+<div id="help" class="overlay"><div class="card">
+  <button class="x" id="help-x">✕</button><h2>Atalhos da oficina</h2>
+  <div id="help-tools" class="hgrid"></div>
+  <h3>Gerais</h3>
+  <div class="hgrid">
+    <div><kbd>espaço</kbd> + arrastar</div><div>mover o mapa com qualquer ferramenta</div>
+    <div><kbd>roda do mouse</kbd></div><div>zoom</div>
+    <div><kbd>Z</kbd> (segurar)</div><div>lupa de satélite</div>
+    <div><kbd>T</kbd></div><div>cortina arte × maquete</div>
+    <div><kbd>[</kbd> <kbd>]</kbd></div><div>tamanho do pincel</div>
+    <div><kbd>X</kbd></div><div>trocar as duas cores</div>
+    <div><kbd>Ctrl+Z</kbd></div><div>desfazer (também desfaz a última troca aplicada)</div>
+    <div><kbd>Ctrl+Enter</kbd></div><div>aplicar a edição no mapa</div>
+    <div><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></div><div>copiar a seleção / colar (ou colar a imagem do Gemini)</div>
+    <div><kbd>Esc</kbd></div><div>cancelar o que está em andamento</div>
+    <div><kbd>?</kbd></div><div>esta ajuda</div>
+  </div>
+</div></div>
+<div id="welcome" class="overlay"><div class="card">
+  <h2>Bem-vindo à oficina do mapa</h2>
+  <p class="sub">Três jeitos de consertar, do mais rápido ao mais caprichado:</p>
+  <ol>
+    <li><b>Um clique:</b> ligue <b>🛣️ Lago → rua</b> ou <b>🌳 Lago → terreno</b> no topo e clique no lago errado. Pronto, já vai para o mapa.</li>
+    <li><b>À mão:</b> escolha uma ferramenta na esquerda (lápis, balde, árvore, prédio…). A barra de cima mostra só as opções dela, e o rodapé diz o que fazer. Termine com <b>Aplicar</b>.</li>
+    <li><b>Com o Gemini:</b> marque uma área ⬚, exporte na aba <b>Exportar</b>, e cole (Ctrl+V) a imagem que ele devolver.</li>
+  </ol>
+  <p class="sub">Segure <kbd>Z</kbd> a qualquer momento para ver o satélite de verdade. A tecla <kbd>?</kbd> mostra todos os atalhos.</p>
+  <button class="ok" id="welcome-ok">Entendi</button>
+</div></div>
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -409,7 +481,23 @@ const PRESET_LABEL = { agua: "remover água inventada", predios: "mais detalhes 
 
 // ---------- ferramentas no mapa ----------
 const PAINT = ["pencil", "fill", "pick", "clone", "dither", "eraser", "iso", "wand", "lasso", "move", "tree"];
-function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : t === "move" ? "move" : "crosshair"; if (PAINT.includes(t)) showTab("ed"); if (t !== "lasso" && lasso) { lasso = null; draw(); } }
+function setTool(t) {
+  tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
+  cv.style.cursor = t === "pan" ? "grab" : t === "move" ? "move" : "crosshair";
+  if (t !== "lasso" && lasso) { lasso = null; draw(); }
+  optUI();
+}
+// barra de opções: só os controles da ferramenta atual; rodapé: como usar
+function optUI() {
+  const b = document.querySelector(`#tools [data-tool="${tool}"]`);
+  $("#ot-icon").textContent = b ? b.textContent : ""; $("#ot-name").textContent = b ? b.dataset.name : "";
+  const extra = tool === "tree" && $("#tr-tone").value === "color" ? ["tree-color"] : [];
+  document.querySelectorAll("#optbar .opt").forEach((o) => { const f = o.dataset.for.split(" "); o.classList.toggle("show", f.includes(tool) || extra.some((x) => f.includes(x))); });
+  document.querySelectorAll("#optbar [data-for2]").forEach((o) => (o.style.display = o.dataset.for2.split(" ").includes(tool) ? "inline-flex" : "none"));
+  $("#col-lbl").textContent = { dither: "cor 1 · cor 2", iso: "telhado · paredes", wand: "cor para “pintar”", lasso: "cor para “pintar”", tree: "cor das árvores" }[tool] || "";
+  $("#hint").innerHTML = b ? `<b>${b.textContent} ${b.dataset.name}</b> — ${b.dataset.hint}` : "";
+  $("#editinfo").textContent = "";
+}
 $("#tools").addEventListener("click", (e) => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
 const evW = (e) => { const r = cv.getBoundingClientRect(); return S2W((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
 let lasso = null, pickFrom = false, isoSnap = null, lensOn = false, lakeHi = null, wedit = null, wnew = null;
@@ -433,7 +521,7 @@ cv.addEventListener("pointerdown", async (e) => {
   if (lx < 0 || ly < 0 || lx >= W || ly >= H) return;
   if (pickFrom) { const d = edit.data.data, i = (ly * W + lx) * 4; $("#rep-from").value = hex(d[i], d[i + 1], d[i + 2]); pickFrom = false; info("Cor a trocar escolhida. Clique em “Trocar”."); return; }
   if (tool === "pick" || ((tool === "pencil" || tool === "fill" || tool === "dither") && e.altKey)) return pickColor(lx, ly);
-  if (tool === "clone" && e.altKey) { cloneSrc = [lx, ly]; info(`Origem do carimbo em (${lx}, ${ly}). Agora pinte onde quer copiar.`); return; }
+  if (tool === "clone" && e.altKey) { cloneSrc = [lx, ly]; $("#clone-st").textContent = `origem definida (${lx}, ${ly}) — agora pinte`; info("Origem do carimbo definida. Agora pinte onde quer copiar."); return; }
   if (tool === "clone" && !cloneSrc) { info("Alt+clique primeiro para escolher de onde o carimbo copia."); return; }
   if (tool === "wand") { wand(lx, ly, e.shiftKey ? "add" : e.altKey ? "sub" : "set"); return; }
   if (tool === "lasso") {
@@ -486,13 +574,16 @@ function measUI() {
   if (!meas) return;
   const dx = meas[2] - meas[0], dy = meas[3] - meas[1], px = Math.hypot(dx, dy), a = toLL(meas[0], meas[1]), b = toLL(meas[2], meas[3]);
   const ground = a && b ? meters(a, b) : px * M.mpp, up = M.axes ? Math.abs(dy) / Math.abs(M.axes.up[1]) : 0;
-  $("#f-meas").textContent = `régua: ${px.toFixed(0)} px · ${ground.toFixed(1)} m no chão · se for altura: ${up.toFixed(1)} m ≈ ${(up / 3).toFixed(1)} andares`;
+  const txt = `${px.toFixed(0)} px · ${ground.toFixed(1)} m no chão · se for altura: ${up.toFixed(1)} m ≈ ${(up / 3).toFixed(1)} andares`;
+  $("#f-meas").textContent = "régua: " + txt; $("#o-meas").textContent = txt;
 }
-const info = (t) => { $("#editinfo").textContent = t; };
+let infoT = 0;
+const info = (t) => { const el = $("#editinfo"); el.textContent = t ? "· " + t : ""; clearTimeout(infoT); if (t) infoT = setTimeout(() => (el.textContent = ""), 9000); };
 const hex = (r, g, b) => "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 const rgbOf = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 function rgb() { return rgbOf($("#color").value); }
-function refresh() { edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw(); }
+function refresh() { edit.buf.getContext("2d").putImageData(edit.data, 0, 0); ebUI(); draw(); }
+function ebUI() { if (!edit) return; const n = edit.undo.length + (edit.result ? 1 : 0); $("#ebinfo").innerHTML = `Editando <b>${boxWH(edit.box).join(" × ")} px</b> · ${n ? `<b>${n}</b> ${n === 1 ? "alteração" : "alterações"}` : "nenhuma alteração ainda"}`; }
 
 // ---------- área de edição ----------
 async function ensureEdit(w) {
@@ -522,7 +613,7 @@ async function startEditBox(b) {
 function editUI() {
   const on = !!edit;
   $("#editbar").style.display = on ? "flex" : "none"; $("#b-reproc").disabled = !(edit && edit.imported);
-  if (on) $("#ebinfo").textContent = `editando ${boxWH(edit.box).join(" × ")} px`;
+  if (on) ebUI();
   info(on ? `Editando ${boxWH(edit.box).join(" × ")} px em (${edit.box[0]}, ${edit.box[1]}). Nada vai para o mapa até “Aplicar”.` : "Nada em edição.");
 }
 function pushUndo() { if (!edit) return; if (edit.result) commitResult(); edit.undo.push(new ImageData(new Uint8ClampedArray(edit.data.data), edit.data.width, edit.data.height)); if (edit.undo.length > 20) edit.undo.shift(); }
@@ -781,8 +872,9 @@ function linePx(a, b, [r, g, bl]) {
 
 function palUI() {
   const cols = new Map(); if (edit) { const d = edit.data.data; for (let i = 0; i < d.length; i += 64) { const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3); cols.set(k, (cols.get(k) || 0) + 1); } }
-  const local = [...cols.entries()].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([k]) => "#" + [(k >> 10) & 31, (k >> 5) & 31, k & 31].map((v) => (v * 8 + 4).toString(16).padStart(2, "0")).join(""));
-  $("#pal").innerHTML = [...local, ...palette.slice(0, 24)].map((c) => `<div style="background:${c}" data-c="${c}" title="${c} · clique = principal, botão direito = secundária"></div>`).join("");
+  const local = [...cols.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([k]) => "#" + [(k >> 10) & 31, (k >> 5) & 31, k & 31].map((v) => (v * 8 + 4).toString(16).padStart(2, "0")).join(""));
+  const all = [...new Set([...local, ...palette])].slice(0, 32);  // 2 linhas: cores da área + do mapa
+  $("#pal").innerHTML = all.map((c) => `<div style="background:${c}" data-c="${c}" title="${c} · clique = principal, botão direito = secundária"></div>`).join("");
 }
 $("#pal").onclick = (e) => { if (e.target.dataset.c) $("#color").value = e.target.dataset.c; };
 $("#pal").oncontextmenu = (e) => { e.preventDefault(); if (e.target.dataset.c) $("#color2").value = e.target.dataset.c; };
@@ -925,7 +1017,7 @@ async function waterDown(w, e) {
   wUI(); draw();
 }
 function closeNewWater() { wedit = { id: null, ring: 0, px: wnew, orig: [], dirty: true }; wnew = null; winfo("Forma da água nova pronta: ajuste os vértices e clique “Salvar forma”."); wUI(); draw(); }
-const winfo = (t) => { $("#winfo").textContent = t; showTab("ed"); };
+const winfo = (t) => { $("#winfo").textContent = t; };
 function wUI() { $("#w-save").disabled = !wedit; $("#w-cancel").disabled = !(wedit || wnew); }
 $("#w-new").onclick = () => { wedit = null; wnew = []; setTool("water"); winfo("Clique os cantos da água nova no mapa; clique no 1º ponto ou Enter para fechar."); wUI(); };
 $("#w-cancel").onclick = () => { wedit = null; wnew = null; wUI(); winfo("Edição de água cancelada."); draw(); };
@@ -1131,13 +1223,16 @@ const setLayer = (l) => { if (l === "sat" && !M.sat) { alert("A camada de satél
 $("#l-art").onclick = () => setLayer("art"); $("#l-ren").onclick = () => setLayer("ren"); $("#l-cur").onclick = () => setLayer("cur"); $("#l-sat").onclick = () => setLayer("sat");
 $("#o-satsel").addEventListener("change", draw);
 ["#o-area", "#o-grid", "#o-iso", "#o-prob"].forEach((s) => $(s).addEventListener("change", draw));
-function showTab(t) { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t)); document.querySelectorAll(".tab").forEach((d) => d.classList.toggle("on", d.id === `t-${t}`)); }
+function showTab(t) { if (!document.querySelector(`#t-${t}`)) return; document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t)); document.querySelectorAll(".tab").forEach((d) => d.classList.toggle("on", d.id === `t-${t}`)); }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); if (b && b.dataset.tab === "hist") loadHist(); draw(); };
 $("#b-fit").onclick = fit;
 addEventListener("keydown", (e) => {
   if (e.target.matches("input, textarea, select")) return;
   const k = e.key.toLowerCase();
   if (e.key === " ") { spaceDown = true; e.preventDefault(); return; }
+  if (e.key === "Escape" && ($("#help").classList.contains("on") || $("#welcome").classList.contains("on"))) { help(false); $("#welcome-ok").click(); return; }
+  if (e.key === "?" || e.key === "F1") { e.preventDefault(); help(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); if (edit) applyEdit(); return; }
   if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); $("#b-undo").click(); return; }
   if ((e.ctrlKey || e.metaKey) && k === "c" && edit) { e.preventDefault(); copySel(); return; }
   if (e.key === "Enter" && edit && edit.float) { e.preventDefault(); commitFloat(); return; }
@@ -1155,6 +1250,25 @@ addEventListener("keydown", (e) => {
 });
 addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; if (e.key.toLowerCase() === "z" && lensOn) { lensOn = false; draw(); } });
 addEventListener("beforeunload", (e) => { if (edit) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------- interface: dicas, ajuda, boas-vindas ----------
+$("#tr-tone").addEventListener("change", optUI);
+$("#b-noref").onclick = () => { ref = null; selUI(); draw(); };
+document.addEventListener("click", (e) => { const d = $("#layers"); if (d.open && !d.contains(e.target)) d.open = false; });
+const tip = $("#tip");
+document.querySelectorAll("#tools button").forEach((b) => {
+  b.addEventListener("mouseenter", () => {
+    tip.innerHTML = `<div class="tn"><span>${b.textContent} ${b.dataset.name}</span><kbd>${b.dataset.key}</kbd></div><div class="th">${b.dataset.hint}</div>`;
+    const r = b.getBoundingClientRect(); tip.style.left = r.right + 10 + "px"; tip.style.top = Math.min(innerHeight - 120, r.top) + "px"; tip.style.display = "block";
+  });
+  b.addEventListener("mouseleave", () => (tip.style.display = "none"));
+});
+$("#help-tools").innerHTML = [...document.querySelectorAll("#tools button")].map((b) => `<div class="ti"><kbd>${b.dataset.key}</kbd> ${b.textContent} <b>${b.dataset.name}</b></div><div class="sub">${b.dataset.hint}</div>`).join("");
+const help = (on) => $("#help").classList.toggle("on", on ?? !$("#help").classList.contains("on"));
+$("#b-help").onclick = () => help(); $("#help-x").onclick = () => help(false);
+$("#help").addEventListener("click", (e) => { if (e.target.id === "help") help(false); });
+$("#welcome-ok").onclick = () => { $("#welcome").classList.remove("on"); try { localStorage.setItem("tinymap-welcome", "1"); } catch {} };
+try { if (!localStorage.getItem("tinymap-welcome")) $("#welcome").classList.add("on"); } catch {}
 
 // ---------- início ----------
 (async () => {
