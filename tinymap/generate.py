@@ -91,9 +91,24 @@ STEAL_AFTER = 25 * 60
 NO_WATER = (" There is no river, lake, pond or canal in this part of the view: draw the streets, yards, trees and"
             " roofs that are there.")
 ONLY_WATER = " This part of the view is open river water: draw only water with small ripples, no land, no buildings."
+FIELD = (" This part of the view is a green farm field or lawn seen from above, not water: draw flat green grass or"
+         " crop rows in pixel art.")
+FOREST = " This part of the view is dense forest seen from above, not water: draw tree canopies in pixel art."
 
 
-def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 1, log=print,
+def water_hint(render, mask: np.ndarray) -> str:
+    """Dica do conserto pelo que o render mostra embaixo: lavoura lisa e mata o modelo pintava como lago."""
+    px = np.asarray(render.convert("RGB"), dtype=np.int16)[mask]
+    if not len(px):
+        return NO_WATER
+    r, g, b = px[:, 0].mean(), px[:, 1].mean(), px[:, 2].mean()
+    # depois do tom do satélite a mata fica azulada (85,119,127), a lavoura (121,148,141), a cidade (140,146,146)
+    if g - r >= 20:
+        return FOREST if (r + g + b) / 3 < 115 else FIELD
+    return NO_WATER
+
+
+def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 2, log=print,
            max_share: float = 0.30, area: np.ndarray | None = None):
     """Redesenha só os pedaços com água inventada ou terra no rio (o resto fica fixo por pinning)."""
     W, H = img.size
@@ -101,7 +116,7 @@ def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tri
         invented, land = water_errors(img, render)
         if area is not None:  # fora da área do mapa o site recorta: não vale gastar GPU consertando
             invented, land = invented & area, land & area
-        if invented.mean() + land.mean() < 0.001:
+        if invented.mean() + land.mean() < (0.001 if t == 0 else 0.005):  # 2ª volta só se sobrou muito
             break
         log(f"  conserto {t + 1}: água inventada {invented.mean():.1%}, terra no rio {land.mean():.1%}")
         for bad, hint in ((invented, NO_WATER), (land, ONLY_WATER)):
@@ -126,7 +141,8 @@ def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tri
                     x0 = int(max(0, min(x0, W - w))) // 16 * 16
                     y0 = int(max(0, min(y0, H - h))) // 16 * 16
                     box = (x0, y0, x0 + w, y0 + h)
-                    fixed = model.joint(render.crop(box), prompt + hint, pinned=img.crop(box),
+                    h_ = water_hint(render.crop(box), bad[y0:y0 + h, x0:x0 + w]) if hint == NO_WATER else hint
+                    fixed = model.joint(render.crop(box), prompt + h_, pinned=img.crop(box),
                                         pin_mask=~grow[y0:y0 + h, x0:x0 + w], steps=g["steps"],
                                         true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
                                         window=g["window_px"], stride=g["stride_px"],
