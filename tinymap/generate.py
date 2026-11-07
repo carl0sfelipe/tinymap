@@ -42,10 +42,6 @@ def blocks(run: Run) -> list[dict]:
     return out
 
 
-NO_WATER = (" There is no river, lake, pond or canal in this part of the view: draw the streets, yards, trees and"
-            " roofs that are there.")
-
-
 def _small(mask: np.ndarray, f: int) -> np.ndarray:
     """Reduz uma máscara booleana por f (máximo em cada bloco f x f)."""
     h, w = mask.shape
@@ -89,6 +85,8 @@ def water_errors(img, render, f: int = 4) -> tuple[np.ndarray, np.ndarray]:
 def grow_mask(bad: np.ndarray, r: int = 32, f: int = 8) -> np.ndarray:
     return _big(_filt(_small(bad, f), "max", 2 * (r // f) + 1), f, bad.shape)
 
+
+STEAL_AFTER = 25 * 60
 
 NO_WATER = (" There is no river, lake, pond or canal in this part of the view: draw the streets, yards, trees and"
             " roofs that are there.")
@@ -151,52 +149,65 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
     rc, ac = render_canvas(run), art_canvas(run)
     state = run.path("blocks", ".keep").parent
     all_blocks = [b for b in blocks(run) if not only or b["id"] in only]
+    def paint(b, phase) -> None:
+        done, lock = state / f"{b['id']}.done", state / f"{b['id']}.lock"
+        t0 = time.time()
+        x0, y0, x1, y1 = b["box"]
+        # block plus margin, clamped to the canvas, rounded to whole windows
+        cx0, cy0 = max(0, x0 - M), max(0, y0 - M)
+        cx1, cy1 = min(W, x1 + M), min(H, y1 + M)
+        win = g["window_px"]
+        cx1 = max(cx1, cx0 + win)
+        cy1 = max(cy1, cy0 + win)
+        box = (cx0, cy0, cx1, cy1)
+        render = rc.crop(box)
+        pinned = ac.crop(box)
+        # pinned = margin pixels whose art exists (neighbours finished in earlier phases)
+        have = np.zeros((cy1 - cy0, cx1 - cx0), bool)
+        s = run.view["shot_px"]
+        for r in range(cy0 // s, (cy1 - 1) // s + 1):
+            for c in range(cx0 // s, (cx1 - 1) // s + 1):
+                if ac.has(r, c):
+                    ys, xs = max(0, r * s - cy0), max(0, c * s - cx0)
+                    have[ys:min(cy1 - cy0, (r + 1) * s - cy0), xs:min(cx1 - cx0, (c + 1) * s - cx0)] = True
+        core = np.zeros_like(have)
+        core[y0 - cy0:y1 - cy0, x0 - cx0:x1 - cx0] = True
+        pin = have & ~core
+        print(f"[{b['id']} phase {phase}] {box}, pinned {pin.mean():.0%}", flush=True)
+        img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
+                          steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
+                          window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
+        if g.get("repair", True):
+            img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"])
+        core_img = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
+        # pad partial edge blocks to whole shots before writing
+        if core_img.width % s or core_img.height % s:
+            from PIL import Image
+            pad = Image.new("RGB", (-(-core_img.width // s) * s, -(-core_img.height // s) * s), (0, 0, 0))
+            pad.paste(core_img, (0, 0))
+            core_img = pad
+        ac.write((x0, y0), core_img)
+        done.write_text(json.dumps({"seconds": round(time.time() - t0), "box": b["box"]}))
+        lock.unlink(missing_ok=True)
+        print(f"[{b['id']}] done in {time.time() - t0:.0f}s", flush=True)
+
     for phase in range(4):
         mine = [b for b in all_blocks if b["phase"] == phase]
         for b in (mine[shard[0]::shard[1]] if shard else mine):
             done, lock = state / f"{b['id']}.done", state / f"{b['id']}.lock"
             if done.exists() or (shard is None and not _claim(lock)):
                 continue
-            t0 = time.time()
-            x0, y0, x1, y1 = b["box"]
-            # block plus margin, clamped to the canvas, rounded to whole windows
-            cx0, cy0 = max(0, x0 - M), max(0, y0 - M)
-            cx1, cy1 = min(W, x1 + M), min(H, y1 + M)
-            win = g["window_px"]
-            cx1 = max(cx1, cx0 + win)
-            cy1 = max(cy1, cy0 + win)
-            box = (cx0, cy0, cx1, cy1)
-            render = rc.crop(box)
-            pinned = ac.crop(box)
-            # pinned = margin pixels whose art exists (neighbours finished in earlier phases)
-            have = np.zeros((cy1 - cy0, cx1 - cx0), bool)
-            s = run.view["shot_px"]
-            for r in range(cy0 // s, (cy1 - 1) // s + 1):
-                for c in range(cx0 // s, (cx1 - 1) // s + 1):
-                    if ac.has(r, c):
-                        ys, xs = max(0, r * s - cy0), max(0, c * s - cx0)
-                        have[ys:min(cy1 - cy0, (r + 1) * s - cy0), xs:min(cx1 - cx0, (c + 1) * s - cx0)] = True
-            core = np.zeros_like(have)
-            core[y0 - cy0:y1 - cy0, x0 - cx0:x1 - cx0] = True
-            pin = have & ~core
-            print(f"[{b['id']} phase {phase}] {box}, pinned {pin.mean():.0%}", flush=True)
-            img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
-                              steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
-                              window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
-            if g.get("repair", True):
-                img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"])
-            core_img = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
-            # pad partial edge blocks to whole shots before writing
-            if core_img.width % s or core_img.height % s:
-                from PIL import Image
-                pad = Image.new("RGB", (-(-core_img.width // s) * s, -(-core_img.height // s) * s), (0, 0, 0))
-                pad.paste(core_img, (0, 0))
-                core_img = pad
-            ac.write((x0, y0), core_img)
-            done.write_text(json.dumps({"seconds": round(time.time() - t0), "box": b["box"]}))
-            lock.unlink(missing_ok=True)
-            print(f"[{b['id']}] done in {time.time() - t0:.0f}s", flush=True)
-        # wait for the other GPUs to finish this phase before starting the next one
+            paint(b, phase)
+        # espera as outras GPUs terminarem a fase; se um worker caiu, depois de STEAL_AFTER segundos este
+        # assume os blocos que faltam (senão as GPUs ficam paradas, cobrando, esperando um bloco que nunca vem)
+        waited = 0
         while not all((state / f"{b['id']}.done").exists() for b in mine):
             time.sleep(15)
+            waited += 15
+            if waited >= STEAL_AFTER:
+                for b in mine:
+                    if not (state / f"{b['id']}.done").exists():
+                        print(f"[{b['id']}] pendente há {waited // 60} min: assumindo", flush=True)
+                        paint(b, phase)
+                waited = 0
     print("all phases finished")
