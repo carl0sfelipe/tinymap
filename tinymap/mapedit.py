@@ -81,7 +81,8 @@ class MapEdit:
 
     # ---------- shots ----------
     def _src(self, layer: str, r: int, c: int) -> Path:
-        return (self.art if layer == "art" else self.run.dir / "render") / f"r{r}_c{c}.png"
+        d = {"art": self.art, "render": self.run.dir / "render", "sat": self.run.dir / "render_sat"}[layer]
+        return d / f"r{r}_c{c}.png"
 
     def tile(self, layer: str, r: int, c: int, size: int) -> bytes | None:
         src = self._src(layer, r, c)
@@ -257,7 +258,8 @@ class MapEdit:
         return {"name": self.run.name, "title": self.run.region.get("title"), "canvas": v["canvas_px"], "shot": self.s,
                 "cols": v["cols"], "rows": v["rows"], "mpp": v["meters_per_px"], "area": v["area_px"],
                 "shots": v["shots"], "art": sorted(p.stem for p in self.art.glob("r*_c*.png")),
-                "axes": axes, "places": places, "presets": list(PRESETS), "geo": self.aff() if axes else None}
+                "axes": axes, "places": places, "presets": list(PRESETS), "geo": self.aff() if axes else None,
+                "sat": (self.run.dir / "render_sat").exists()}
 
     def palette(self, n: int = 48) -> list[str]:
         """Paleta global da arte (amostra das miniaturas), para ajustar recortes importados."""
@@ -333,6 +335,129 @@ class MapEdit:
         items.sort(key=lambda x: -x["area"])
         self.problems = {"status": "pronto", "done": len(shots), "total": len(shots), "items": items[:400]}
 
+    # ---------- lagos do OSM ----------
+    def _edits(self) -> dict:
+        p = self.run.dir / "osm" / "water_edits.json"
+        return json.loads(p.read_text()) if p.exists() else {}
+
+    def _water(self):
+        """(água em uso, todas): OSM baixado + formas editadas/novas da oficina (water_edits.json), menos as excluídas."""
+        p = self.run.dir / "osm" / "water_ll.json"
+        base = json.loads(p.read_text())["features"] if p.exists() else []
+        ed = self._edits()
+        feats = [ed.get(f["id"], f) for f in base] + [f for k, f in ed.items() if k.startswith("novo-")]
+        ex = self._excluded()
+        return [f for f in feats if f["id"] not in ex], feats
+
+    def _excluded(self) -> list[str]:
+        p = self.run.dir / "osm" / "water_excluded.json"
+        return json.loads(p.read_text()) if p.exists() else []
+
+    def water_at(self, x: float, y: float) -> dict | None:
+        """O polígono de água do OSM que contém o ponto (px do canvas), com o contorno em px."""
+        from shapely.geometry import Point, Polygon
+
+        from . import geo
+        lat, lon = geo.to_ll(self.aff(), x, y)
+        pt = Point(lon, lat)
+        best = None
+        for f in self._water()[0]:
+            for ring in f["rings"]:
+                if len(ring) < 4:
+                    continue
+                pg = Polygon([(b, a) for a, b in ring], [[(b, a) for a, b in h] for h in f.get("holes", []) if len(h) >= 4])
+                if pg.is_valid and pg.contains(pt) and (best is None or pg.area < best[1].area):
+                    best = (f, pg, ring)
+        if not best:
+            return None
+        f, pg, ring = best
+        k = f["rings"].index(ring)
+        lat0 = math.radians(lat)
+        area = pg.area * (111320 * math.cos(lat0)) * 110540
+        osm = f["id"]
+        url = f"https://www.openstreetmap.org/{ {'w': 'way', 'r': 'relation', 'n': 'node'}.get(osm[0], 'way') }/{osm[1:]}"
+        return {"id": osm, "ring": k, "url": url, "area_m2": round(area), "edited": osm in self._edits(),
+                "px": [list(map(float, geo.to_px(self.aff(), a, b))) for a, b in ring]}
+
+    def water_delete(self, wid: str, restore: bool = False) -> dict:
+        """Tira (ou devolve) o polígono dos dados locais, refaz a água da maquete e renderiza de novo os shots."""
+        from .sources import merge_water
+        ex = self._excluded()
+        info = None
+        if not restore:
+            feats = {f["id"]: f for f in self._water()[1]}
+            info = feats.get(wid)
+            if wid not in ex:
+                ex.append(wid)
+        elif wid in ex:
+            ex.remove(wid)
+        (self.run.dir / "osm" / "water_excluded.json").write_text(json.dumps(ex))
+        feat = info or {f["id"]: f for f in self._water()[1]}.get(wid)
+        return {"shots": self._rebuild_water([feat] if feat else []), "excluded": ex}
+
+    def _rebuild_water(self, touched: list[dict]) -> list[tuple[int, int]]:
+        """Refaz a água da maquete e renderiza de novo os shots que as formas mexidas tocam."""
+        from . import geo
+        from .sources import merge_water
+        keep = self._water()[0]
+        scene_p = self.run.dir / "osm" / "scene_ll.json"
+        scene = json.loads(scene_p.read_text())
+        scene["water"] = merge_water([{"rings": f["rings"], "holes": f.get("holes", [])} for f in keep])
+        scene_p.write_text(json.dumps(scene))
+        shots, s = [], self.s
+        for feat in touched:
+            pts = [geo.to_px(self.aff(), a, b) for ring in feat["rings"] for a, b in ring]
+            if not pts:
+                continue
+            xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+            for r in range(max(0, int(min(ys) - 64) // s), int(max(ys) + 64) // s + 1):
+                for c in range(max(0, int(min(xs) - 64) // s), int(max(xs) + 64) // s + 1):
+                    f2 = self.run.dir / "render" / f"r{r}_c{c}.png"
+                    if f2.exists():
+                        f2.unlink()
+                    if (r, c) not in shots:
+                        shots.append((r, c))
+        self.rerender()
+        return shots
+
+    def water_save(self, wid: str | None, k: int, px: list) -> dict:
+        """Grava a forma editada de um lago/rio (anel k) ou cria água nova (wid vazio) a partir de px do canvas."""
+        from . import geo
+        ring = [list(geo.to_ll(self.aff(), x, y)) for x, y in px]
+        if ring[0] != ring[-1]:
+            ring.append(ring[0])
+        ed = self._edits()
+        old = None
+        if wid:
+            cur = {f["id"]: f for f in self._water()[1]}[wid]
+            old = json.loads(json.dumps(cur))
+            new = json.loads(json.dumps(cur))
+            new["rings"][k] = ring
+        else:
+            wid = f"novo-{int(time.time())}"
+            new = {"id": wid, "kind": "water", "rings": [ring], "holes": []}
+        ed[wid] = new
+        (self.run.dir / "osm" / "water_edits.json").write_text(json.dumps(ed))
+        return {"id": wid, "shots": self._rebuild_water([f for f in (old, new) if f])}
+
+    def rerender(self) -> None:
+        if getattr(self, "rr", None) is not None and self.rr.poll() is None:
+            self.rr_again = True  # já renderizando: roda de novo no fim
+            return
+        log = open(self.run.dir / "rerender.log", "w")
+        env = dict(__import__("os").environ, CHROME_PATH=__import__("os").environ.get("CHROME_PATH", "/usr/bin/chromium"))
+        self.rr = subprocess.Popen([sys.executable, "-m", "tinymap.cli", "render", str(self.region_file), "--workers", "1"],
+                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env)
+        self.rr_again = False
+
+    def rerender_status(self) -> dict:
+        rr = getattr(self, "rr", None)
+        running = rr is not None and rr.poll() is None
+        if not running and getattr(self, "rr_again", False):
+            self.rerender()
+            running = True
+        return {"running": running, "code": None if rr is None or running else rr.poll()}
+
     # ---------- publicar ----------
     def publish(self) -> None:
         if self.pub is not None and self.pub.poll() is None:
@@ -348,7 +473,7 @@ class MapEdit:
 
 
 def serve(ed: MapEdit, host: str, port: int) -> None:
-    rx_tile = re.compile(r"^/tile/(art|render)/(\d+)/(\d+)/(\d+)$")
+    rx_tile = re.compile(r"^/tile/(art|render|sat)/(\d+)/(\d+)/(\d+)$")
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -387,6 +512,12 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                     return self._json(ed.problems)
                 if path == "/api/publish":
                     return self._json(ed.pub_status())
+                if path == "/api/water_at":
+                    return self._json({"lake": ed.water_at(float(q["x"]), float(q["y"]))})
+                if path == "/api/rerender":
+                    return self._json(ed.rerender_status())
+                if path == "/api/water_excluded":
+                    return self._json(ed._excluded())
                 m = rx_tile.match(path)
                 if m:
                     b = ed.tile(m[1], int(m[2]), int(m[3]), int(m[4]))
@@ -425,6 +556,10 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                 if path == "/api/publish":
                     ed.publish()
                     return self._json({"ok": True})
+                if path == "/api/water_save":
+                    return self._json(ed.water_save(body.get("id") or None, int(body.get("ring", 0)), body["px"]))
+                if path == "/api/water_delete":
+                    return self._json(ed.water_delete(body["id"], bool(body.get("restore"))))
                 return self._json({"error": "rota desconhecida"}, 404)
             except Exception as e:  # noqa: BLE001
                 return self._json({"error": str(e)}, 400)

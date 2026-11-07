@@ -56,7 +56,7 @@ if (useOsm) {
   let sat = null;
   const sr = await fetch("/sat.json");
   if (sr.ok) sat = { meta: await sr.json(), textures: [] };
-  const built = buildOsmScene(view, data, sat);
+  const built = buildOsmScene(view, data, sat, { satOnly: !!window.OPTS?.satOnly });
   const { group, lights } = built;
   if (sat) {
     // Só os pedaços de satélite que o shot enxerga ficam na GPU (a região toda tem ~150 de 4096 px).

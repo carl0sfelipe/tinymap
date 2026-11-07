@@ -75,6 +75,11 @@ footer a { color: var(--accent); }
       <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button>
       <button id="l-ren" title="Só a maquete com satélite">Maquete</button>
       <button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o botão do meio; tecla T)">Cortina</button>
+      <button id="l-sat" title="Só a foto do satélite, no ângulo do mapa (a realidade, sem o OSM pintado)">Satélite</button>
+    </div>
+    <div class="grp">
+      <label title="Segure Z para ver o satélite numa lupa em volta do cursor">🔍 lupa (Z)</label>
+      <label><input type="checkbox" id="o-satsel"> satélite na seleção</label>
     </div>
     <div class="grp">
       <label><input type="checkbox" id="o-area" checked> área</label>
@@ -105,6 +110,8 @@ footer a { color: var(--accent); }
       <button data-tool="dither" title="Pontilhado (D): xadrez com as duas cores, o sombreado da pixel art">▦</button>
       <button data-tool="eraser" title="Borracha (E): volta ao original ou revela a maquete">🧽</button>
       <button data-tool="iso" title="Prédio isométrico (U): arraste a diagonal da base · Shift = base quadrada · andares na aba Editar">🏠</button>
+      <button data-tool="water" title="Editar água (J): clique num lago/rio e arraste os vértices · clique na borda cria vértice · Shift+clique apaga vértice">🌊</button>
+      <button data-tool="lakedel" title="Excluir lago (K): clique num lago que não existe; ele sai dos dados (OSM local) e do desenho">🚱</button>
       <button id="b-lake" title="Apagar lagoa (L): troca a água inventada pelo terreno em volta (na seleção mágica, se houver)">🏝️</button>
       <hr>
       <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
@@ -182,6 +189,12 @@ footer a { color: var(--accent); }
         <h3>Trocar cor</h3>
         <div class="row"><input type="color" id="rep-from" value="#3f7fc4" title="cor a trocar"><button id="b-repick" title="Clique no mapa para pegar a cor a trocar">pegar</button>
           <span class="sub">→ cor principal</span><button id="b-replace">Trocar</button></div>
+        <h3>Lagos e rios (dados)</h3>
+        <div class="note" id="winfo">Com 🌊, clique num lago ou rio para editar o contorno: arraste os vértices, clique na borda para criar um, Shift+clique para apagar. 🚱 exclui um lago inteiro.</div>
+        <div class="chips">
+          <button class="chip ok" id="w-save" disabled>Salvar forma</button><button class="chip" id="w-cancel" disabled>Cancelar</button>
+          <button class="chip" id="w-new" title="Clique os cantos no mapa, Enter fecha">Desenhar água nova</button>
+        </div>
         <h3>Borracha e prédio</h3>
         <div class="row"><label>borracha volta para <select id="erase-src"><option value="base">o original</option><option value="ren">a maquete</option></select></label></div>
         <div class="row"><label>prédio: <input type="number" id="iso-floors" min="1" max="40" value="2" style="width:56px"> andares</label>
@@ -283,6 +296,7 @@ function paint() {
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
     const rt = getTile("render", r, c, size);
     if (rt.ok) ctx.drawImage(rt.img, c * S, r * S, S, S);
+    if (layer === "sat") { const st = getTile("sat", r, c, size); if (st.ok) ctx.drawImage(st.img, c * S, r * S, S, S); continue; }
     if (layer === "ren" || !artSet.has(`r${r}_c${c}`)) continue;
     const at = getTile("art", r, c, size);
     if (!at.ok) continue;
@@ -291,6 +305,9 @@ function paint() {
       ctx.setTransform(k, 0, 0, k, view.x, view.y); ctx.drawImage(at.img, c * S, r * S, S, S); ctx.restore();
     } else ctx.drawImage(at.img, c * S, r * S, S, S);
   }
+  // satélite por cima: dentro da seleção (caixa ligada) e na lupa (segurando Z)
+  const satIn = (clip) => { ctx.save(); clip(); ctx.clip(); for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const st = getTile("sat", r, c, size); if (st.ok) ctx.drawImage(st.img, c * S, r * S, S, S); } ctx.restore(); };
+  if (M.sat && $("#o-satsel").checked && sel) satIn(() => { ctx.beginPath(); ctx.rect(sel[0], sel[1], sel[2] - sel[0], sel[3] - sel[1]); });
   // edição em andamento por cima
   if (edit) {
     const src = edit.result || edit.buf, [w, h] = boxWH(edit.box), split = +$("#i-split").value / 100;
@@ -304,6 +321,15 @@ function paint() {
     if (lasso && lasso.pts.length) { ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 1.5 / k; ctx.beginPath(); lasso.pts.forEach(([x, y], i) => (i ? ctx.lineTo(edit.box[0] + x + .5, edit.box[1] + y + .5) : ctx.moveTo(edit.box[0] + x + .5, edit.box[1] + y + .5))); if (mouseW) ctx.lineTo(mouseW[0], mouseW[1]); ctx.stroke(); }
   }
   const lw = 1 / k;
+  if (M.sat && lensOn && mouseW) { const R = 170 / k; satIn(() => { ctx.beginPath(); ctx.arc(mouseW[0], mouseW[1], R, 0, Math.PI * 2); }); ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 2 * lw; ctx.beginPath(); ctx.arc(mouseW[0], mouseW[1], R, 0, Math.PI * 2); ctx.stroke(); }
+  if (wedit || wnew) {
+    const pts = wedit ? wedit.px : wnew;
+    ctx.strokeStyle = "#35e0ff"; ctx.lineWidth = 2 * lw; ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    if (wedit) ctx.closePath(); else if (mouseW) ctx.lineTo(mouseW[0], mouseW[1]); ctx.stroke();
+    const vis = pts.filter(([x, y]) => x >= wx0 && x <= wx1 && y >= wy0 && y <= wy1);
+    if (vis.length < 2500) { const hs = 5 / k; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#0b6f87"; ctx.lineWidth = lw; for (const [x, y] of vis) { ctx.fillRect(x - hs / 2, y - hs / 2, hs, hs); ctx.strokeRect(x - hs / 2, y - hs / 2, hs, hs); } }
+  }
+  if (lakeHi) { ctx.strokeStyle = "#ff3b3b"; ctx.lineWidth = 3 * lw; ctx.setLineDash([6 / k, 4 / k]); ctx.beginPath(); lakeHi.px.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
   if ($("#o-grid").checked) { ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = lw; for (let r = r0; r <= r1 + 1; r++) { ctx.beginPath(); ctx.moveTo(c0 * S, r * S); ctx.lineTo((c1 + 1) * S, r * S); ctx.stroke(); } for (let c = c0; c <= c1 + 1; c++) { ctx.beginPath(); ctx.moveTo(c * S, r0 * S); ctx.lineTo(c * S, (r1 + 1) * S); ctx.stroke(); } }
   if ($("#o-area").checked && M.area) { ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.setLineDash([8 / k, 6 / k]); ctx.lineWidth = 1.5 * lw; ctx.beginPath(); M.area.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
   if ($("#o-iso").checked && M.axes && k > 0.15) isoGrid(wx0, wy0, wx1, wy1, lw);
@@ -372,7 +398,7 @@ const PAINT = ["pencil", "fill", "pick", "clone", "dither", "eraser", "iso", "wa
 function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : t === "move" ? "move" : "crosshair"; if (PAINT.includes(t)) showTab("ed"); if (t !== "lasso" && lasso) { lasso = null; draw(); } }
 $("#tools").addEventListener("click", (e) => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
 const evW = (e) => { const r = cv.getBoundingClientRect(); return S2W((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
-let lasso = null, pickFrom = false, isoSnap = null;
+let lasso = null, pickFrom = false, isoSnap = null, lensOn = false, lakeHi = null, wedit = null, wnew = null;
 const L = (w) => [Math.floor(w[0] - edit.box[0]), Math.floor(w[1] - edit.box[1])];
 cv.addEventListener("pointerdown", async (e) => {
   cv.setPointerCapture(e.pointerId);
@@ -381,6 +407,8 @@ cv.addEventListener("pointerdown", async (e) => {
   if (e.button !== 0 || spaceDown || tool === "pan") { drag = { pan: true, sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
   if (tool === "sel" || tool === "ref") { drag = { box: true, x: snap(w[0]), y: snap(w[1]), which: tool }; return; }
   if (tool === "measure") { meas = [w[0], w[1], w[0], w[1]]; drag = { meas: true }; return; }
+  if (tool === "lakedel") { deleteLake(w); return; }
+  if (tool === "water") { waterDown(w, e); return; }
   if (!PAINT.includes(tool)) return;
   if (!(await ensureEdit(w))) return;
   const [lx, ly] = L(w), W = edit.data.width, H = edit.data.height;
@@ -409,7 +437,7 @@ cv.addEventListener("pointermove", (e) => {
   const w = evW(e); mouseW = w;
   $("#f-pos").textContent = `x ${Math.round(w[0])} y ${Math.round(w[1])}`;
   const ll = M && M.geo ? toLL(w[0], w[1]) : null; $("#f-ll").textContent = ll ? `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}` : "";
-  if (!drag) { if (edit || lasso) draw(); return; }
+  if (!drag) { if (edit || lasso || wnew) draw(); return; }
   if (drag.curtain) { const r = cv.getBoundingClientRect(); curtain = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
   else if (drag.pan) { view.x = drag.vx + (e.clientX - drag.sx) * devicePixelRatio; view.y = drag.vy + (e.clientY - drag.sy) * devicePixelRatio; }
   else if (drag.box) {
@@ -421,6 +449,7 @@ cv.addEventListener("pointermove", (e) => {
   } else if (drag.meas) { meas[2] = w[0]; meas[3] = w[1]; measUI(); }
   else if (drag.paint) { const [lx, ly] = L(w); line(drag.last, [lx, ly], drag.off); drag.last = [lx, ly]; lastPt = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
   else if (drag.float) { const [lx, ly] = L(w); edit.float.x = drag.fx + lx - drag.sx; edit.float.y = drag.fy + ly - drag.sy; }
+  else if (drag.wv !== undefined) { wedit.px[drag.wv] = [w[0], w[1]]; }
   else if (drag.iso) { edit.data.data.set(isoSnap); isoBox(drag.a, L(w), e.shiftKey); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
   draw();
 });
@@ -647,14 +676,20 @@ $("#b-lake").onclick = async () => {
   let mask = new Uint8Array(N); for (let p = 0; p < N; p++) if (wetish(d, p * 4) && !near[p]) mask[p] = 1;
   mask = dilate(mask, W, H, 2); for (let p = 0; p < N; p++) if (near[p] || !inMask(p)) mask[p] = 0;  // borda clara; só na seleção mágica
   let n = 0; for (let p = 0; p < N; p++) n += mask[p];
-  if (!n) { busy(); $("#editinfo").textContent = "Nenhuma água inventada nesta seleção."; return; }
-  // 1) textura: acha um deslocamento onde a origem é terreno sem água e copia (mata vira mata, grama vira grama)
-  const src = new Uint8ClampedArray(d), bad = (q) => mask[q] || near[q] || wetish(src, q * 4);
+  if (!n) { busy(); info("Nenhuma água inventada nesta área."); return; }
+  fillTerrain(mask, near); refresh(); busy();
+  info(`Lagoa apagada: ${fmt(n)} px trocados por terreno da própria área. Use “antes ↔ depois” na barra e “Aplicar no mapa”.`);
+  $("#i-split").value = 100;
+};
+// preenche os pixels da máscara com textura de terreno da própria área (parecida com o entorno, sem contorno de prédio)
+function fillTerrain(mask, near, water = false) {
+  // water = true: preenche com textura de água tirada da própria área (para alargar rio ou criar lago)
+  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data;
+  const src = new Uint8ClampedArray(d), bad = water ? (q) => mask[q] || !wetish(src, q * 4) : (q) => mask[q] || near[q] || wetish(src, q * 4);
   for (let round = 0; round < 4; round++) {
-    const left = []; for (let p = 0; p < N; p += 1) if (mask[p]) left.push(p);
+    const left = []; for (let p = 0; p < N; p++) if (mask[p]) left.push(p);
     if (!left.length) break;
     const sample = left.filter((_, i) => i % Math.max(1, Math.floor(left.length / 3000)) === 0);
-    // cor média do entorno da lagoa: a origem deve parecer com ela (verde perto de verde, sem trazer casas)
     let rr = 0, rg = 0, rb = 0, rn = 0;
     for (const p of sample) for (const q of [p - 3, p + 3, p - 3 * W, p + 3 * W]) if (q >= 0 && q < N && !mask[q] && !near[q]) { rr += src[q * 4]; rg += src[q * 4 + 1]; rb += src[q * 4 + 2]; rn++; }
     rr /= rn || 1; rg /= rn || 1; rb /= rn || 1;
@@ -663,24 +698,118 @@ $("#b-lake").onclick = async () => {
       if (!dx && !dy) continue; let ok = 0, cr = 0, cg = 0, cb = 0, ink = 0;
       for (const p of sample) { const x = p % W + dx, y = ((p / W) | 0) + dy; if (x >= 0 && y >= 0 && x < W && y < H && !bad(y * W + x)) { ok++; const q = (y * W + x) * 4; cr += src[q]; cg += src[q + 1]; cb += src[q + 2]; if (src[q] < 50 && src[q + 1] < 50 && src[q + 2] < 50) ink++; } }
       const dist = ok ? Math.hypot(cr / ok - rr, cg / ok - rg, cb / ok - rb) / 255 : 1;
-      // contorno preto = prédio: copiar de lá inventaria construções; grama e mata quase não têm
       const score = ok / sample.length - dist * 0.8 - (ok ? ink / ok : 0) * 4 - Math.hypot(dx, dy) / (W + H) * 0.15;
       if (score > bestScore) { bestScore = score; best = [dx, dy]; }
     }
     if (!best || bestScore <= 0.05) break;
     for (const p of left) { const x = p % W + best[0], y = ((p / W) | 0) + best[1]; if (x < 0 || y < 0 || x >= W || y >= H) continue; const q = y * W + x; if (bad(q)) continue; d.set(src.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; }
   }
-  // 2) o que sobrou: cor de um vizinho, de fora para dentro
   let left = 0; for (let p = 0; p < N; p++) left += mask[p];
+  if (water && left) { // sem água por perto para copiar: água de pixel art (azul com ondinhas)
+    for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, y = (p / W) | 0, i = p * 4, wave = (y % 7 === 0 && (x + y * 3) % 11 < 4); d[i] = wave ? 110 : 52; d[i + 1] = wave ? 170 : 118; d[i + 2] = wave ? 230 : 198; d[i + 3] = 255; mask[p] = 0; }
+    left = 0;
+  }
   for (let pass = 0; left && pass < 400; pass++) {
     const next = [];
     for (let p = 0; p < N; p++) { if (!mask[p]) continue; const x = p % W, nb = []; if (x > 0 && !mask[p - 1]) nb.push(p - 1); if (x < W - 1 && !mask[p + 1]) nb.push(p + 1); if (p >= W && !mask[p - W]) nb.push(p - W); if (p < N - W && !mask[p + W]) nb.push(p + W); if (nb.length) next.push([p, nb[(Math.random() * nb.length) | 0]]); }
     for (const [p, q] of next) { d.set(d.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; left--; }
   }
-  edit.buf.getContext("2d").putImageData(edit.data, 0, 0); busy();
-  $("#editinfo").textContent = `Lagoa apagada: ${fmt(n)} px trocados por terreno da própria seleção. Use “antes ↔ depois” na barra e “Aplicar no mapa”.`;
-  $("#i-split").value = 100; draw();
+}
+// ---------- editar lagos e rios (os dados) ----------
+async function waterDown(w, e) {
+  const k = view.s * devicePixelRatio, thr = 8 / k;
+  if (wnew) { // desenhando água nova
+    if (wnew.length > 2 && Math.hypot(w[0] - wnew[0][0], w[1] - wnew[0][1]) < thr * 1.5) return closeNewWater();
+    wnew.push([w[0], w[1]]); draw(); return;
+  }
+  if (wedit) {
+    const P = wedit.px; let vi = -1, vd = thr;
+    for (let i = 0; i < P.length; i++) { const d = Math.hypot(P[i][0] - w[0], P[i][1] - w[1]); if (d < vd) { vd = d; vi = i; } }
+    if (vi >= 0) {
+      if (e.shiftKey) { if (P.length > 4) { P.splice(vi, 1); wedit.dirty = true; draw(); } return; }
+      drag = { wv: vi }; wedit.dirty = true; return;
+    }
+    let ei = -1, ed = thr, ep = null; // perto de uma borda: cria um vértice ali e já arrasta
+    for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1; const t = Math.max(0, Math.min(1, ((w[0] - a[0]) * dx + (w[1] - a[1]) * dy) / L2)); const q = [a[0] + t * dx, a[1] + t * dy], d = Math.hypot(q[0] - w[0], q[1] - w[1]); if (d < ed) { ed = d; ei = i; ep = q; } }
+    if (ei >= 0) { P.splice(ei + 1, 0, ep); drag = { wv: ei + 1 }; wedit.dirty = true; draw(); return; }
+    if (wedit.dirty) { info("Salve ou cancele a forma atual antes de pegar outra água."); return; }
+  }
+  const j = await api(`/api/water_at?x=${w[0]}&y=${w[1]}`);
+  if (!j.lake) { winfo("Nenhuma água do OSM aqui. Para criar, use “Desenhar água nova”."); return; }
+  wedit = { id: j.lake.id, ring: j.lake.ring, px: j.lake.px.slice(0, -1).map((p) => [...p]), orig: j.lake.px.map((p) => [...p]) };
+  winfo(`Editando ${j.lake.id} (${fmt(j.lake.area_m2)} m², ${wedit.px.length} vértices${j.lake.edited ? ", já editada antes" : ""}). Arraste os vértices; depois “Salvar forma”.`);
+  wUI(); draw();
+}
+function closeNewWater() { wedit = { id: null, ring: 0, px: wnew, orig: [], dirty: true }; wnew = null; winfo("Forma da água nova pronta: ajuste os vértices e clique “Salvar forma”."); wUI(); draw(); }
+const winfo = (t) => { $("#winfo").textContent = t; showTab("ed"); };
+function wUI() { $("#w-save").disabled = !wedit; $("#w-cancel").disabled = !(wedit || wnew); }
+$("#w-new").onclick = () => { wedit = null; wnew = []; setTool("water"); winfo("Clique os cantos da água nova no mapa; clique no 1º ponto ou Enter para fechar."); wUI(); };
+$("#w-cancel").onclick = () => { wedit = null; wnew = null; wUI(); winfo("Edição de água cancelada."); draw(); };
+$("#w-save").onclick = async () => {
+  if (!wedit || wedit.px.length < 3) return;
+  busy("salvando a forma…");
+  const px = [...wedit.px, wedit.px[0]], res = await api("/api/water_save", { id: wedit.id, ring: wedit.ring, px });
+  // no desenho: o que entrou na água vira água, o que saiu vira terreno (para conferir e aplicar)
+  const all = [...px, ...wedit.orig], xs = all.map((p) => p[0]), ys = all.map((p) => p[1]), pad = 96;
+  const b = norm([snap(Math.min(...xs) - pad), snap(Math.min(...ys) - pad), snap(Math.max(...xs) + pad), snap(Math.max(...ys) + pad)]);
+  const [bw, bh] = boxWH(b), orig = wedit.orig, isNew = !wedit.id; wedit = null; wUI();
+  if (bw * bh > 4096 * 4096) { busy(); winfo(`Forma salva nos dados (${res.id}); a área é grande demais para atualizar o desenho de uma vez: use as ferramentas por partes.`); pollRerender(res.shots); return; }
+  if (edit && !(await applyEdit())) { busy(); return; }
+  await startEditBox(b); pushUndo();
+  const W = edit.data.width, H = edit.data.height, N = W * H, inNew = new Uint8Array(N), inOld = new Uint8Array(N);
+  rasterPoly(px.map(([x, y]) => [x - b[0], y - b[1]]), inNew, W, H);
+  if (orig.length) rasterPoly(orig.map(([x, y]) => [x - b[0], y - b[1]]), inOld, W, H);
+  const add = new Uint8Array(N), rem = new Uint8Array(N); let na = 0, nr = 0;
+  for (let p = 0; p < N; p++) { if (inNew[p] && !inOld[p]) { add[p] = 1; na++; } else if (inOld[p] && !inNew[p]) { rem[p] = 1; nr++; } }
+  const none = new Uint8Array(N);
+  if (nr) fillTerrain(rem, inNew);
+  if (na) fillTerrain(add, none, true);
+  refresh(); busy();
+  info(`${isNew ? "Água nova criada" : "Forma salva"} nos dados (${res.id}; ${res.shots.length} pedaços da maquete sendo renderizados de novo). No desenho: ${fmt(na)} px viraram água e ${fmt(nr)} px viraram terreno. Confira e “Aplicar no mapa”.`);
+  pollRerender(res.shots);
 };
+
+// excluir lago: some dos dados (OSM local + maquete) e do desenho
+async function deleteLake(w) {
+  const j = await api(`/api/water_at?x=${w[0]}&y=${w[1]}`);
+  if (!j.lake) { info("Nenhum lago do OSM aqui. Se é água que a IA inventou, use 🏝️ apagar lagoa."); showTab("ed"); return; }
+  lakeHi = j.lake; draw();
+  await new Promise((r) => setTimeout(r, 60));
+  if (!confirm(`Excluir este lago (${fmt(j.lake.area_m2)} m², OSM ${j.lake.id}) dos dados e do desenho?`)) { lakeHi = null; draw(); return; }
+  busy("tirando o lago dos dados…");
+  const res = await api("/api/water_delete", { id: j.lake.id });
+  // no desenho: abre a área do lago e preenche com terreno em volta (para conferir e aplicar)
+  const xs = j.lake.px.map((p) => p[0]), ys = j.lake.px.map((p) => p[1]), pad = 96;
+  const b = norm([snap(Math.min(...xs) - pad), snap(Math.min(...ys) - pad), snap(Math.max(...xs) + pad), snap(Math.max(...ys) + pad)]);
+  if (edit && !(await applyEdit())) { busy(); return; }
+  await startEditBox(b); pushUndo();
+  const W = edit.data.width, H = edit.data.height, N = W * H, poly = j.lake.px.map(([x, y]) => [x - b[0], y - b[1]]);
+  // o lago no desenho é maior que o polígono (a maquete pinta ~12 px a mais e a IA às vezes alarga):
+  // polígono com 16 px de folga + toda água pintada até 48 px dele
+  const core = new Uint8Array(N); rasterPoly(poly, core, W, H);
+  const m = dilate(core, W, H, 16), reach = dilate(core, W, H, 48), d = edit.data.data;
+  for (let p = 0; p < N; p++) if (reach[p] && wetish(d, p * 4)) m[p] = 1;
+  // outra água de verdade (longe do lago) continua protegida
+  const rd = edit.renData.data, far = dilate(m, W, H, 8), river = new Uint8Array(N); for (let p = 0; p < N; p++) river[p] = wet(rd, p * 4) && !far[p] ? 1 : 0;
+  const near = dilate(river, W, H, 12);
+  fillTerrain(m, near); refresh(); lakeHi = null; busy(); showTab("ed");
+  info(`Lago ${j.lake.id} excluído dos dados (${res.shots.length} pedaços da maquete sendo renderizados de novo). No desenho, a área virou terreno: confira e clique “Aplicar no mapa”.`);
+  pollRerender(res.shots);
+}
+function rasterPoly(pts, m, W, H) {
+  const ys = pts.map((p) => p[1]);
+  for (let y = Math.max(0, Math.floor(Math.min(...ys))); y <= Math.min(H - 1, Math.ceil(Math.max(...ys))); y++) {
+    const xs = []; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y + 0.5) !== (yj > y + 0.5)) xs.push(xi + (y + 0.5 - yi) * (xj - xi) / (yj - yi)); }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) for (let x = Math.max(0, Math.round(xs[k])); x < Math.min(W, Math.round(xs[k + 1])); x++) m[y * W + x] = 1;
+  }
+}
+async function pollRerender(shots) {
+  const j = await api("/api/rerender");
+  if (j.running) { setTimeout(() => pollRerender(shots), 4000); return; }
+  for (const [r, c] of shots) shotVer[`${r}_${c}`] = Date.now();
+  draw();
+}
 function dilate(m, W, H, r) { // dilatação separável (máximo numa janela de 2r+1)
   const a = new Uint8Array(W * H), b = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) { let run = -1e9; for (let x = 0; x < W; x++) { if (m[y * W + x]) run = x; a[y * W + x] = x - run <= r ? 1 : 0; } run = 1e9; for (let x = W - 1; x >= 0; x--) { if (m[y * W + x]) run = x; if (run - x <= r) a[y * W + x] = 1; } }
@@ -810,8 +939,9 @@ $("#q").oninput = () => { const q = $("#q").value.trim().toLowerCase(); const r 
 $("#sres").onclick = (e) => { const d = e.target.closest("[data-x]"); if (!d) return; goTo(+d.dataset.x, +d.dataset.y, 1); $("#sres").style.display = "none"; };
 
 // ---------- camadas, abas, teclado ----------
-const setLayer = (l) => { layer = l; [["#l-art", "art"], ["#l-ren", "ren"], ["#l-cur", "cur"]].forEach(([s, v]) => $(s).classList.toggle("on", v === l)); draw(); };
-$("#l-art").onclick = () => setLayer("art"); $("#l-ren").onclick = () => setLayer("ren"); $("#l-cur").onclick = () => setLayer("cur");
+const setLayer = (l) => { if (l === "sat" && !M.sat) { alert("A camada de satélite ainda está sendo renderizada (tinymap render --sat-only)."); return; } layer = l; [["#l-art", "art"], ["#l-ren", "ren"], ["#l-cur", "cur"], ["#l-sat", "sat"]].forEach(([s, v]) => $(s).classList.toggle("on", v === l)); draw(); };
+$("#l-art").onclick = () => setLayer("art"); $("#l-ren").onclick = () => setLayer("ren"); $("#l-cur").onclick = () => setLayer("cur"); $("#l-sat").onclick = () => setLayer("sat");
+$("#o-satsel").addEventListener("change", draw);
 ["#o-area", "#o-grid", "#o-iso", "#o-prob"].forEach((s) => $(s).addEventListener("change", draw));
 function showTab(t) { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t)); document.querySelectorAll(".tab").forEach((d) => d.classList.toggle("on", d.id === `t-${t}`)); }
 $("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); if (b && b.dataset.tab === "hist") loadHist(); draw(); };
@@ -824,16 +954,18 @@ addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && k === "c" && edit) { e.preventDefault(); copySel(); return; }
   if (e.key === "Enter" && edit && edit.float) { e.preventDefault(); commitFloat(); return; }
   if (e.key === "Enter" && lasso && lasso.pts.length > 2) { e.preventDefault(); closeLasso(); return; }
+  if (e.key === "Enter" && wnew && wnew.length > 2) { e.preventDefault(); closeNewWater(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (k === "z") { if (!lensOn) { lensOn = true; draw(); } e.preventDefault(); return; }
   if (sel && e.key.startsWith("Arrow") && !edit) { e.preventDefault(); const d = e.shiftKey ? [0, 0, 16, 16] : [16, 16, 16, 16], s = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; setSel(e.shiftKey ? [sel[0], sel[1], sel[2] + s[0] * 16, sel[3] + s[1] * 16] : [sel[0] + s[0] * d[0], sel[1] + s[1] * d[1], sel[2] + s[0] * d[2], sel[3] + s[1] * d[3]]); return; }
   const m = { h: () => setTool("pan"), s: () => setTool("sel"), r: () => setTool("ref"), m: () => setTool("measure"), w: () => setTool("wand"), q: () => setTool("lasso"), v: () => setTool("move"),
-    b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"), d: () => setTool("dither"), e: () => setTool("eraser"), u: () => setTool("iso"),
+    k: () => setTool("lakedel"), j: () => setTool("water"), b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"), d: () => setTool("dither"), e: () => setTool("eraser"), u: () => setTool("iso"),
     l: () => $("#b-lake").click(), x: () => $("#b-swap").click(), f: fit, t: () => setLayer(layer === "cur" ? "art" : "cur"),
     "[": () => { $("#bsize").value = +$("#bsize").value - 1; $("#bsize").oninput(); }, "]": () => { $("#bsize").value = +$("#bsize").value + 1; $("#bsize").oninput(); },
-    escape: () => { meas = null; $("#f-meas").textContent = ""; if (lasso) lasso = null; else if (edit && edit.float) edit.float = null; else if (edit && edit.mask) { edit.mask = null; maskUI(); } draw(); } };
+    escape: () => { meas = null; $("#f-meas").textContent = ""; if (wnew) { wnew = null; wUI(); } else if (lasso) lasso = null; else if (edit && edit.float) edit.float = null; else if (edit && edit.mask) { edit.mask = null; maskUI(); } draw(); } };
   if (m[k]) { e.preventDefault(); m[k](); }
 });
-addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; });
+addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; if (e.key.toLowerCase() === "z" && lensOn) { lensOn = false; draw(); } });
 addEventListener("beforeunload", (e) => { if (edit) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---------- início ----------

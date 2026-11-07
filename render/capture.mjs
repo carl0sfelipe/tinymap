@@ -59,7 +59,7 @@ const browser = await chromium.launch({
 async function newPage() {
   const page = await browser.newPage({ viewport: { width: view.shot_px, height: view.shot_px } });
   page.on("pageerror", (e) => console.error("page error:", e.message));
-  await page.addInitScript(([v, a]) => { window.VIEW = v; window.AUTH = a; }, [view, auth]);
+  await page.addInitScript(([v, a, o]) => { window.VIEW = v; window.AUTH = a; window.OPTS = o; }, [view, auth, { satOnly: args.includes("--sat-only") }]);
   await page.goto(`http://localhost:${port}/`);
   await page.waitForFunction(() => window.SCENE_READY === true, null, { timeout: 300_000 });
   return page;
@@ -115,8 +115,10 @@ if (args.includes("--overview")) {
     console.log(file);
   }
 } else {
-  mkdirSync(`${run}/render`, { recursive: true });
-  const todo = view.shots.filter(([c, r]) => !existsSync(`${run}/render/r${r}_c${c}.png`));
+  // --out render_sat --sat-only: camada só com a foto do satélite (a oficina mostra como "satélite")
+  const outDir = `${run}/${opt("--out", "render")}`;
+  mkdirSync(outDir, { recursive: true });
+  const todo = view.shots.filter(([c, r]) => !existsSync(`${outDir}/r${r}_c${c}.png`));
   const workers = Number(opt("--workers", 2));
   console.log(`${todo.length} shots to render with ${workers} workers`);
   let done = 0;
@@ -126,7 +128,7 @@ if (args.includes("--overview")) {
       const [c, r] = todo.shift();
       const t0 = Date.now();
       try {
-        await shoot(page, { col: c, row: r }, `${run}/render/r${r}_c${c}.png`);
+        await shoot(page, { col: c, row: r }, `${outDir}/r${r}_c${c}.png`);
         console.log(`[${++done}] r${r} c${c} ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       } catch (e) {
         console.error(`r${r} c${c} failed: ${e.message}; will retry on next run`);

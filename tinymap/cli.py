@@ -83,6 +83,7 @@ def main() -> None:
     ap.add_argument("--pinos")
     ap.add_argument("--precise", default="yes", choices=["yes", "no"])
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--sat-only", action="store_true", help="render: só a foto do satélite (render_sat/)")
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args()
     run = R.load(a.region, pilot=a.pilot)
@@ -95,7 +96,7 @@ def main() -> None:
         R.node("capture.mjs", run.dir, "--probe", *pts)
         print(f"look at {run.dir / 'probe'}: melted/flat buildings = poor 3D coverage there")
     elif a.cmd == "render":
-        R.node("capture.mjs", run.dir, "--workers", a.workers)
+        R.node("capture.mjs", run.dir, "--workers", a.workers, *(["--out", "render_sat", "--sat-only"] if a.sat_only else []))
     elif a.cmd == "osm":
         from .osm import fetch
         fetch(run)

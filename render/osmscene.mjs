@@ -49,7 +49,8 @@ function satProj(sat) {
   return { toPx, toLL, chunkAt };
 }
 
-export function buildOsmScene(view, data, sat = null) {
+export function buildOsmScene(view, data, sat = null, opts = {}) {
+  // opts.satOnly: só a foto do satélite no chão (camada "satélite" da oficina: a realidade, sem OSM pintado)
   const ground = view.target_height_m;
   const enu = new Matrix4();
   WGS84_ELLIPSOID.getEastNorthUpFrame(view.lat * D2R, view.lon * D2R, ground, enu);
@@ -169,13 +170,13 @@ export function buildOsmScene(view, data, sat = null) {
     for (const f of data.green ?? []) flat(f.rings, f.holes, -0.2, COL[f.kind] ?? COL.green);
     for (const f of data.water ?? []) flat(f.rings, f.holes, -0.1, COL.water);
     for (const r of data.roads ?? []) strip(r.line, r.w, 0, r.major ? COL.major : r.kind === "rail" ? COL.rail : COL.road);
-  } else {
+  } else if (!opts.satOnly) {
     // Por cima da foto: rio do OSM em azul de mapa e ruas em cinza. Sem isso o modelo lia rua de terra
     // (vermelha) como canal e sombra de mata (azul-escura) como lago. Sem luz: cor chapada, igual à foto.
     for (const f of data.water ?? []) flat(f.rings, f.holes, -0.1, SAT.water);
     for (const r of data.roads ?? []) if (r.w >= 3) strip(r.line, r.w, -0.05, r.major ? SAT.major : SAT.road); // sem trilhas
   }
-  for (const b of data.buildings ?? []) building(b);
+  if (!opts.satOnly) for (const b of data.buildings ?? []) building(b);
 
   const group = new Group();
   // Satélite em pedaços carregados sob demanda: um material por pedaço, sem textura até useChunks().
