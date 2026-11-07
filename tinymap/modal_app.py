@@ -233,14 +233,19 @@ def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at
 @app.cls(image=image21, gpu=GPU, volumes={"/hf": hf_cache}, timeout=4 * 3600, max_containers=4,
          scaledown_window=120)
 class Teacher:
-    """Carrega o Qwen-Image-2.1 uma vez por container; cada recorte volta assim que fica pronto."""
+    """Carrega o modelo professor uma vez por container; cada recorte volta assim que fica pronto.
+    Qwen-Image-Edit-* usa o QwenImageEditPlusPipeline (Apache-2.0); o resto, o QwenImage21Pipeline."""
     model_id: str = modal.parameter(default=TEACHER)
 
     @modal.enter()
     def load(self):
         import torch
-        from diffusers import QwenImage21Pipeline
-        self.pipe = QwenImage21Pipeline.from_pretrained(self.model_id, torch_dtype=torch.bfloat16).to("cuda")
+        self.edit = "Edit" in self.model_id
+        if self.edit:
+            from diffusers import QwenImageEditPlusPipeline as P
+        else:
+            from diffusers import QwenImage21Pipeline as P
+        self.pipe = P.from_pretrained(self.model_id, torch_dtype=torch.bfloat16).to("cuda")
         self.pipe.set_progress_bar_config(disable=True)
         hf_cache.commit()
 
@@ -255,8 +260,13 @@ class Teacher:
         out = []
         for s in seeds:
             t0 = time.time()
-            res = self.pipe(prompt=prompt, image=img, width=img.width, height=img.height, num_inference_steps=steps,
-                            generator=torch.Generator("cuda").manual_seed(s)).images[0]
+            g = torch.Generator("cuda").manual_seed(s)
+            if self.edit:
+                res = self.pipe(image=[img], prompt=prompt, width=img.width, height=img.height,
+                                num_inference_steps=steps, true_cfg_scale=1.0, generator=g).images[0]
+            else:
+                res = self.pipe(prompt=prompt, image=img, width=img.width, height=img.height,
+                                num_inference_steps=steps, generator=g).images[0]
             b = BytesIO()
             res.save(b, "PNG")
             out.append((fid, s, b.getvalue()))
@@ -266,8 +276,8 @@ class Teacher:
 
 @app.local_entrypoint()
 def teacher(region: str = "regions/triplice-fronteira.yaml", pilot: bool = False, out: str = "pairs_v1",
-            n: int = 120, cands: int = 2, gpus: int = 4, steps: int = 40, smoke: int = 0,
-            model: str = TEACHER, seed: int = 0, new: int = 0):
+            n: int = 120, cands: int = 2, gpus: int = 4, steps: int = 0, smoke: int = 0,
+            model: str = "", seed: int = 0, new: int = 0):
     """Lote de pares de treino com o Qwen-Image-2.1, no ciclo com revisão humana (tinymap review).
 
     Redesenha: recortes ainda sem candidato + os marcados "refazer" na revisão (com a dica no prompt).
@@ -281,6 +291,10 @@ def teacher(region: str = "regions/triplice-fronteira.yaml", pilot: bool = False
     from tinymap import teacher as T
     run = R.load(region, pilot=pilot)
     d = run.dir / out
+    # modelo e passos: argumento > YAML (style.teacher_model / generate.teacher_steps) > padrão
+    model = model or run.region["style"].get("teacher_model") or TEACHER
+    steps = steps or run.region["generate"].get("teacher_steps") or (20 if "Edit" in model else 40)
+    print(f"professor: {model}, {steps} passos", flush=True)
     if new and (d / "frames.json").exists():
         print(f"{len(T.extend(run, d, new, seed))} recortes novos")
     jobs = T.prepare(run, d, n, seed)

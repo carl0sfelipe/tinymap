@@ -53,6 +53,8 @@ style:
     edges, a limited palette, clean dark outlines on rooftops, no photographic texture,
     no blur, no text, no labels.
   negative: "photo, blurry, noise, text, watermark, labels, people close-up"
+  # Professor dos pares de treino. 2511: Apache-2.0 (uso comercial ok). Qwen-Image-2.1: só não comercial.
+  teacher_model: Qwen/Qwen-Image-2.1
   # Só para o professor (pares de treino): mais insistente no estilo. A frase de onde está o rio
   # (máscara do OSM) é acrescentada por recorte. Num quadrado só de água o modelo base inventava cidade.
   teacher_prompt: >-
