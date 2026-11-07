@@ -970,7 +970,7 @@ async function quickLake(w) {
     if (real > cnt * 0.5 && !confirm("Isso parece água que está no mapa de dados (rio/lago do OSM). Trocar mesmo assim só no desenho?\n(Para tirar dos dados também, use 🚱.)")) { edit = null; editUI(); return; }
     pushUndo();
     const m = dilate(reg, W, H, 3);
-    if (quick === "road") paintRoad(m); else { const dd = edit.data.data; for (let q = 0; q < N; q++) if (m[q] && edit.hasArt[q]) { dd[q * 4] = 116; dd[q * 4 + 1] = 204; dd[q * 4 + 2] = 100; } }
+    if (quick === "road") paintRoad(m); else paintNearGreen(m);
     refresh(); busy("aplicando no mapa…");
     const label = quick === "road" ? "lago → rua" : "lago → terreno";
     const src = edit.buf; try {
@@ -998,8 +998,9 @@ async function dataWaterToLand(lake) {
   for (let q = 0; q < N; q++) if (wetish(d, q * 4) && edit.hasArt[q]) blue[q] = 1;
   for (let q = 0; q < N; q++) if (blue[q] && reach[q]) { m[q] = 1; st.push(q); }
   while (st.length) { const q = st.pop(), x = q % W; for (const r of [x > 0 ? q - 1 : -1, x < W - 1 ? q + 1 : -1, q - W, q + W]) if (r >= 0 && r < N && blue[r] && !m[r]) { m[r] = 1; st.push(r); } }
-  const m2 = dilate(m, W, H, 2), c = quick === "road" ? [108, 116, 116] : [116, 204, 100]; let nr = 0, ng = 0;
-  for (let q = 0; q < N; q++) if (m2[q] && edit.hasArt[q]) { d[q * 4] = c[0]; d[q * 4 + 1] = c[1]; d[q * 4 + 2] = c[2]; quick === "road" ? nr++ : ng++; }
+  const m2 = dilate(m, W, H, 2); let nr = 0, ng = 0;
+  if (quick === "road") { for (let q = 0; q < N; q++) if (m2[q] && edit.hasArt[q]) { d[q * 4] = 108; d[q * 4 + 1] = 116; d[q * 4 + 2] = 116; nr++; } }
+  else ng = paintNearGreen(m2);
   const allRoad = quick === "road";
   refresh(); busy("aplicando no mapa…");
   try {
@@ -1010,6 +1011,19 @@ async function dataWaterToLand(lake) {
     toast(`✓ ${lake.id} tirado dos dados: ${fmt(nr + ng)} px viraram ${allRoad ? "rua" : "verde"}. Ctrl+Z desfaz o desenho.`, 7000);
   } catch (e) { alert("Erro ao aplicar: " + e.message); }
   busy(); draw(); pollRerender(res.shots);
+}
+// pinta a máscara com UM verde: o verde de grama mais comum em volta (ignora o verde-escuro das árvores)
+function paintNearGreen(m) {
+  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, art = edit.hasArt;
+  const ring = dilate(m, W, H, 16), inner = dilate(m, W, H, 3), c = new Map(); let best = (116 << 16) | (204 << 8) | 100, bn = 0;
+  for (let q = 0; q < N; q++) {
+    if (!ring[q] || inner[q] || !art[q]) continue; const i = q * 4, r = d[i], g = d[i + 1], b = d[i + 2];
+    if (!(g > r + 15 && g > b && r + g + b > 330)) continue;          // grama clara, não copa de árvore
+    const k = (r << 16) | (g << 8) | b, n = (c.get(k) || 0) + 1; c.set(k, n); if (n > bn) { bn = n; best = k; }
+  }
+  const r = best >> 16, g = (best >> 8) & 255, b = best & 255; let n = 0;
+  for (let q = 0; q < N; q++) if (m[q] && art[q]) { d[q * 4] = r; d[q * 4 + 1] = g; d[q * 4 + 2] = b; n++; }
+  return n;
 }
 // rua: cinza do asfalto da própria área (ou um cinza padrão) com borda escura de 1 px, no estilo do mapa
 // PNG da edição com transparência: pixel sem desenho que não foi mexido continua sem desenho
