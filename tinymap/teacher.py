@@ -17,6 +17,7 @@ import base64
 import json
 import os
 import random
+import unicodedata
 import urllib.request
 from io import BytesIO
 from pathlib import Path
@@ -32,6 +33,16 @@ FRAME = 1024
 ATTEMPTS = 3
 
 
+def _usable(canvas, box, W: int, H: int) -> bool:
+    """Inside the canvas, not sky/empty (missing shots read as sky) and not one flat colour."""
+    x0, y0, x1, y1 = box
+    if x0 < 0 or y0 < 0 or x1 > W or y1 > H:
+        return False
+    crop = np.asarray(canvas.crop(box), np.int16)
+    sky = (np.abs(crop - np.array([135, 206, 235])).sum(2) < 12).mean()
+    return sky <= 0.05 and crop.std() >= 12
+
+
 def sample_frames(run: Run, n: int, seed: int = 0) -> list[dict]:
     """Landmarks + stratified random frames inside the area, skipping sky/empty renders.
     Half of the random frames are 512 px quarters (redrawn zoomed 2x), which teachers copy less."""
@@ -45,7 +56,10 @@ def sample_frames(run: Run, n: int, seed: int = 0) -> list[dict]:
         for p in json.loads(places.read_text())["points"]:
             if p.get("kind") == "landmark":
                 x, y = map(int, p["px"])
-                out.append({"id": "lm_" + "".join(ch for ch in p["name"].lower() if ch.isalnum())[:24],
+                if not _usable(canvas, (x - FRAME // 2, y - FRAME // 2, x + FRAME // 2, y + FRAME // 2), W, H):
+                    continue  # landmark fora deste recorte (piloto) ou sem render
+                slug = unicodedata.normalize("NFKD", p["name"].lower()).encode("ascii", "ignore").decode()
+                out.append({"id": "lm_" + "".join(ch for ch in slug if ch.isalnum())[:24],
                             "box": [x - FRAME // 2, y - FRAME // 2, x + FRAME // 2, y + FRAME // 2]})
     rng = random.Random(seed)
     shots = v["shots"]
@@ -56,11 +70,7 @@ def sample_frames(run: Run, n: int, seed: int = 0) -> list[dict]:
         size = FRAME if rng.random() < 0.5 else FRAME // 2
         x = c * v["shot_px"] + rng.randrange(0, v["shot_px"] - size)
         y = r * v["shot_px"] + rng.randrange(0, v["shot_px"] - size)
-        if not canvas.has(r, c) or x + size > W or y + size > H:
-            continue
-        crop = np.asarray(canvas.crop((x, y, x + size, y + size)), np.int16)
-        sky = (np.abs(crop - np.array([135, 206, 235])).sum(2) < 12).mean()
-        if sky > 0.05 or crop.std() < 12:
+        if not canvas.has(r, c) or not _usable(canvas, (x, y, x + size, y + size), W, H):
             continue
         out.append({"id": f"f{len(out):04d}_{size}", "box": [x, y, x + size, y + size]})
     return out
@@ -141,6 +151,57 @@ def run_teacher(run: Run, out_dir: Path, n: int, backend: str, model=None, seed:
         report.flush()
         print(f"[{i + 1}/{len(frames)}] {line[-80:]}")
     print(f"{kept}/{len(frames)} pairs kept in {out_dir}")
+
+
+def prepare(run: Run, out_dir: Path, n: int, seed: int = 0) -> list[dict]:
+    """Inputs for a batch teacher (e.g. Qwen-Image-2.1 on Modal): frames.json, <id>_render.png and
+    one prompt per frame (style.teacher_prompt or style.prompt, plus where the river is)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frames_file = out_dir / "frames.json"
+    if frames_file.exists():
+        frames = json.loads(frames_file.read_text())
+    else:
+        frames = sample_frames(run, n, seed)
+        frames_file.write_text(json.dumps(frames, indent=1))
+    canvas, water = render_canvas(run), Water(run)
+    style = run.region["style"]
+    base = style.get("teacher_prompt") or style["prompt"]
+    jobs = []
+    for fr in frames:
+        fid, box = fr["id"], tuple(fr["box"])
+        render = canvas.crop(box)
+        render.save(out_dir / f"{fid}_render.png")
+        jobs.append({"id": fid, "prompt": f"{base} {water_sentence(water.mask(box))}",
+                     "image": render.resize((FRAME, FRAME), Image.LANCZOS)})
+    (out_dir / "prompts.json").write_text(json.dumps({j["id"]: j["prompt"] for j in jobs}, indent=1, ensure_ascii=False))
+    return jobs
+
+
+def accept(run: Run, out_dir: Path) -> int:
+    """Check <id>_cand<k>.png from a batch teacher; the first that passes becomes <id>_art.png."""
+    frames = json.loads((out_dir / "frames.json").read_text())
+    water = Water(run)
+    report = open(out_dir / "report.txt", "a")
+    kept = 0
+    for fr in frames:
+        fid, box = fr["id"], tuple(fr["box"])
+        size = box[2] - box[0]
+        render = Image.open(out_dir / f"{fid}_render.png").convert("RGB")
+        mask = water.mask(box)
+        line = f"{fid}: "
+        for cand in sorted(out_dir.glob(f"{fid}_cand*.png")):
+            small = Image.open(cand).convert("RGB").resize((FRAME, FRAME), Image.LANCZOS).resize((size, size), Image.LANCZOS)
+            fails, m = check(small, render, mask)
+            line += f"{cand.stem[len(fid) + 1:]} " + " ".join(f"{k}={v:.3f}" for k, v in m.items()) + (" FAIL " + ",".join(fails) if fails else " PASS") + "; "
+            if not fails:
+                small.save(out_dir / f"{fid}_art.png")
+                kept += 1
+                break
+        (out_dir / f"{fid}.done").write_text(line)
+        report.write(line + "\n")
+    report.close()
+    print(f"{kept}/{len(frames)} pairs kept in {out_dir} (details in report.txt)")
+    return kept
 
 
 def contact_sheet(pairs_dir: Path, cols: int = 4, thumb: int = 384) -> Path:

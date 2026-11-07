@@ -49,6 +49,16 @@ style:
     edges, a limited palette, clean dark outlines on rooftops, no photographic texture,
     no blur, no text, no labels.
   negative: "photo, blurry, noise, text, watermark, labels, people close-up"
+  # Só para o professor (pares de treino): mais insistente no estilo. A frase de onde está o rio
+  # (máscara do OSM) é acrescentada por recorte. Num quadrado só de água o modelo base inventava cidade.
+  teacher_prompt: >-
+    Convert this 3D city model render into clean isometric pixel art, like a 1990s city-builder tile
+    map (SimCity 2000, Transport Tycoon). Pixel art only: every edge is a hard 1-pixel step, flat fills
+    from a small palette of about 32 colours, a dark 1-pixel outline around every roof and wall, simple
+    dithered shading, small pixel trees. Keep the layout identical: every building, road, park and river
+    stays exactly where it is, with the same footprint and height. Flat blue areas are rivers and stay
+    open water with small pixel-art ripples. No photographic texture, no painterly brush strokes, no
+    blur, no soft gradients, no text.
 
 generate:
   window_px: 1024

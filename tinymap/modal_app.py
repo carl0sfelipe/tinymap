@@ -44,6 +44,16 @@ image = (
 GPU = "H100"
 MODEL = "Qwen/Qwen-Image-Edit-2511"
 
+# Professor em lote: Qwen-Image-2.1 (edição + geração, 7B; licença Qwen RESEARCH, só uso não comercial).
+# Imagem separada para não mexer nas versões que rodam o 2511.
+image21 = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("torch>=2.4", "torchvision", "diffusers>=0.42.1", "transformers>=4.57", "accelerate",
+                 "safetensors", "pillow")
+    .env({"HF_HOME": "/hf", "PYTHONUNBUFFERED": "1"})
+)
+TEACHER = "Qwen/Qwen-Image-2.1"
+
 
 def _run_name(region: str, pilot: bool) -> str:
     """Nome da pasta em runs/ (e no Volume), igual ao de region.load: <name> ou <name>-pilot."""
@@ -213,6 +223,71 @@ def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at
     (out / (f"render_{tag or 'single'}.png" if single else "render.png")).write_bytes(r)
     (out / f"{Path(lora).stem if lora else 'base'}{'_' + tag if tag else ''}.png").write_bytes(a)
     print(f"resultado em {out}")
+
+
+@app.function(image=image21, gpu=GPU, volumes={"/hf": hf_cache}, timeout=4 * 3600)
+def _teach(items: list[tuple[str, bytes, str]], model_id: str, steps: int, cands: int, seed: int) -> list[tuple[str, int, bytes]]:
+    """Redesenha cada recorte `cands` vezes (sementes diferentes). As checagens rodam no seu computador."""
+    import time
+    from io import BytesIO
+
+    import torch
+    from diffusers import QwenImage21Pipeline
+    from PIL import Image
+
+    pipe = QwenImage21Pipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16).to("cuda")
+    pipe.set_progress_bar_config(disable=True)
+    hf_cache.commit()
+    out = []
+    for fid, png, prompt in items:
+        img = Image.open(BytesIO(png)).convert("RGB")
+        for k in range(cands):
+            t0 = time.time()
+            g = torch.Generator("cuda").manual_seed(seed + k)
+            res = pipe(prompt=prompt, image=img, width=img.width, height=img.height,
+                       num_inference_steps=steps, generator=g).images[0]
+            b = BytesIO()
+            res.save(b, "PNG")
+            out.append((fid, k, b.getvalue()))
+            print(f"{fid} #{k} {time.time() - t0:.1f}s", flush=True)
+    return out
+
+
+@app.local_entrypoint()
+def teacher(region: str = "regions/triplice-fronteira.yaml", pilot: bool = False, out: str = "pairs_v1",
+            n: int = 120, cands: int = 2, gpus: int = 4, steps: int = 40, smoke: int = 0,
+            model: str = TEACHER, seed: int = 0):
+    """Pares de treino com o Qwen-Image-2.1 na Modal: prepara os recortes aqui, redesenha lá em `gpus`
+    H100 e roda as checagens aqui. --smoke 4 faz só 4 recortes para medir tempo/custo antes do lote."""
+    from io import BytesIO
+
+    from tinymap import region as R
+    from tinymap import teacher as T
+    run = R.load(region, pilot=pilot)
+    d = run.dir / out
+    jobs = T.prepare(run, d, n, seed)
+    if smoke:
+        jobs = jobs[:smoke]
+    todo = [j for j in jobs if not list(d.glob(f"{j['id']}_cand*.png"))]
+    print(f"{len(jobs)} recortes, {len(todo)} sem candidato; {cands} por recorte em até {gpus} {GPU}")
+
+    def png(im):
+        b = BytesIO()
+        im.save(b, "PNG")
+        return b.getvalue()
+
+    items = [(j["id"], png(j["image"]), j["prompt"]) for j in todo]
+    if items:
+        k = -(-len(items) // max(1, gpus))
+        chunks = [items[i:i + k] for i in range(0, len(items), k)]
+        for res in _teach.map(chunks, kwargs={"model_id": model, "steps": steps, "cands": cands, "seed": seed}):
+            for fid, kk, data in res:
+                (d / f"{fid}_cand{kk}.png").write_bytes(data)
+    if smoke:
+        print(f"teste com {len(jobs)} recortes em {d}; veja os *_cand*.png antes de rodar o lote")
+        return
+    T.accept(run, d)
+    print(T.contact_sheet(d))
 
 
 @app.function(image=image, volumes={"/runs": runs}, timeout=3600)
