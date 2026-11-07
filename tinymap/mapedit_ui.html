@@ -470,7 +470,7 @@ cv.addEventListener("pointermove", (e) => {
     selUI();
   } else if (drag.meas) { meas[2] = w[0]; meas[3] = w[1]; measUI(); }
   else if (drag.paint) { const [lx, ly] = L(w); line(drag.last, [lx, ly], drag.off); drag.last = [lx, ly]; lastPt = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
-  else if (drag.tree) { const [lx, ly] = L(w), gap = (+$("#tr-size").value) * 2 * (+$("#tr-gap").value) / 100; if (Math.hypot(lx - drag.last[0], ly - drag.last[1]) >= gap) { plantTree(lx + (Math.random() - .5) * gap * .5, ly + (Math.random() - .5) * gap * .5); drag.last = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); } }
+  else if (drag.tree) { const [lx, ly] = L(w), gap = (+$("#tr-size").value) * 2 * (+$("#tr-gap").value) / 100; if (Math.hypot(lx - drag.last[0], ly - drag.last[1]) >= gap) { plantTree(lx + (Math.random() - .5) * gap * .9, ly + (Math.random() - .5) * gap * .9); drag.last = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); } }
   else if (drag.float) { const [lx, ly] = L(w); edit.float.x = drag.fx + lx - drag.sx; edit.float.y = drag.fy + ly - drag.sy; }
   else if (drag.wv !== undefined) { wedit.px[drag.wv] = [w[0], w[1]]; }
   else if (drag.iso) { edit.data.data.set(isoSnap); isoBox(drag.a, L(w), e.shiftKey); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
@@ -656,37 +656,89 @@ function px(x, y, c, k = 1) { // pinta 1 px (k < 1 escurece o que já está lá:
   if (x < 0 || y < 0 || x >= W || y >= H || !inMask(y * W + x)) return; const i = (y * W + x) * 4, d = edit.data.data;
   if (k < 1) { d[i] = d[i] * k; d[i + 1] = d[i + 1] * k; d[i + 2] = d[i + 2] * k; } else { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; } d[i + 3] = 255;
 }
-function blob(cx, cy, rx, ry, tone, rnd) { // copa: elipse com luz de cima-esquerda, folhas pontilhadas e contorno
+function blob(cx, cy, rx, ry, tone, rnd) { // camada simples (araucária)
   for (let y = Math.floor(-ry - 1); y <= ry + 1; y++) for (let x = Math.floor(-rx - 1); x <= rx + 1; x++) {
-    const e = (x / rx) ** 2 + (y / ry) ** 2; if (e > 1) continue;
-    const edge = (x / (rx - 1 || 1)) ** 2 + (y / (ry - 1 || 1)) ** 2 > 1;
-    const lit = (x / rx + y / ry) * 0.7 + (rnd() - .5) * 0.5;
+    const e = (x / rx) ** 2 + (y / ry) ** 2 + (rnd() - .5) * 0.35; if (e > 1) continue;
+    const edge = e > 0.72 && y > -ry * 0.2;
+    const lit = (x / rx + y / ry) * 0.7 + (rnd() - .5) * 0.6;
     px(cx + x, cy + y, edge ? tone.ink : lit < -0.45 ? tone.hi : lit > 0.35 ? tone.lo : tone.mid);
   }
 }
 function shadow(cx, cy, rx, ry) { for (let y = -ry; y <= ry; y++) for (let x = -rx; x <= rx; x++) if ((x / rx) ** 2 + (y / ry) ** 2 <= 1) px(cx + x, cy + y, null, 0.72); }
+// cor própria de cada árvore: puxa para amarelo/azul, mais clara/escura, às vezes florida
+function jitterTone(t, rnd) {
+  const warm = (rnd() - .5) * 50, bright = 0.82 + rnd() * 0.36, cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  const f = (c) => [cl((c[0] + warm * 0.9) * bright), cl((c[1] + warm * 0.35) * bright), cl((c[2] - warm * 0.6) * bright)];
+  const out = { hi: f(t.hi), mid: f(t.mid), lo: f(t.lo), ink: f(t.ink), bloom: null };
+  const r = rnd(); if ($("#tr-tone").value === "map" && r < 0.08) out.bloom = [[176, 112, 204], [212, 160, 232]];      // ipê-roxo / jacarandá
+  else if ($("#tr-tone").value === "map" && r < 0.13) out.bloom = [[236, 196, 52], [250, 226, 120]];                   // ipê-amarelo
+  return out;
+}
+// ruído de valor (para recortar a borda da copa)
+function vnoise(x, y, seed) { const h = (i, j) => { let n = (i * 374761393 + j * 668265263 + seed * 2246822519) | 0; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+  const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, s = (t) => t * t * (3 - 2 * t);
+  const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1); return a + (b - a) * s(fx) + (c - a) * s(fy) + (a - b - c + d) * s(fx) * s(fy); }
+// copa irregular: 3-7 tufos, borda com ruído, cada tufo com seu brilho, contorno escuro embaixo/direita
+function canopy(cx, cy, r, tone, rnd, flat = 1) {
+  const n = 3 + ((rnd() * 5) | 0), lobes = [], seed = (rnd() * 1e6) | 0;
+  lobes.push([0, 0, r * (0.75 + rnd() * 0.2)]);
+  for (let i = 1; i < n; i++) { const a = rnd() * Math.PI * 2, d = r * (0.3 + rnd() * 0.45); lobes.push([Math.cos(a) * d, Math.sin(a) * d * 0.75 * flat, r * (0.4 + rnd() * 0.35)]); }
+  const R = Math.ceil(r * 1.6), Wd = 2 * R + 1, M2 = new Int8Array(Wd * Wd).fill(-1), sc = Math.max(2, r / 2.5);
+  for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) {
+    const nz = (vnoise((x + 99) / sc, (y + 99) / sc, seed) - .5) * 0.55;
+    let best = -1, bv = 1e9;
+    for (let k = 0; k < lobes.length; k++) { const [lx, ly, lr] = lobes[k], v = ((x - lx) / lr) ** 2 + ((y - ly) / (lr * 0.9 * flat)) ** 2; if (v < bv) { bv = v; best = k; } }
+    if (bv < 1 + nz) M2[(y + R) * Wd + x + R] = best;
+  }
+  const inside = (x, y) => x >= -R && y >= -R && x <= R && y <= R && M2[(y + R) * Wd + x + R] >= 0;
+  const bright = lobes.map(() => (rnd() - .5) * 0.5);
+  for (let y = -R; y <= R; y++) for (let x = -R; x <= R; x++) {
+    const k = M2[(y + R) * Wd + x + R]; if (k < 0) continue;
+    const [lx, ly, lr] = lobes[k];
+    const outDR = !inside(x + 1, y) || !inside(x, y + 1), outUL = !inside(x - 1, y) || !inside(x, y - 1);
+    let c;
+    if (outDR) c = tone.ink;
+    else {
+      const lit = ((x - lx) + (y - ly)) / lr * 0.75 + bright[k] + (rnd() - .5) * 0.55 + (y / R) * 0.35;
+      c = lit < -0.55 ? tone.hi : lit > 0.45 ? tone.lo : tone.mid;
+      if (outUL && rnd() < 0.5) c = tone.lo;                                  // borda de cima mais suave
+      if (rnd() < 0.035) c = tone.ink;                                        // furinhos entre as folhas
+      if (tone.bloom && lit < 0.2 && rnd() < 0.42) c = tone.bloom[rnd() < 0.5 ? 0 : 1];
+    }
+    px(cx + x, cy + y, c);
+  }
+  return R;
+}
 function plantTree(x, y) {
-  let type = $("#tr-type").value; const base = +$("#tr-size").value, r = Math.max(2, base * (0.8 + Math.random() * 0.4)), tone = treeTone();
-  if (type === "mix") type = ["round", "round", "round", "bush", "palm", "araucaria"][(Math.random() * 6) | 0];
-  let seed = (x * 73856093) ^ (y * 19349663); const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-  const trunk = [104, 72, 44], trunkD = [70, 46, 28];
+  let type = $("#tr-type").value; const base = +$("#tr-size").value;
+  if (type === "mix") type = ["round", "round", "round", "round", "bush", "bush", "palm", "araucaria"][(Math.random() * 8) | 0];
+  let seed = ((x * 73856093) ^ (y * 19349663) ^ ((Math.random() * 1e9) | 0)) & 0x7fffffff;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const r = Math.max(2, base * (0.65 + rnd() * 0.7)), tone = jitterTone(treeTone(), rnd);
+  const tb = 0.8 + rnd() * 0.4, trunk = [Math.round(104 * tb), Math.round(72 * tb), Math.round(44 * tb)], trunkD = trunk.map((v) => Math.round(v * 0.66));
+  const lean = (rnd() - .5) * 0.5;
   if (type === "round") {
-    shadow(x + r * 0.45, y + r * 0.25, r * 0.95, r * 0.45);
-    if (r >= 4) for (let t = 0; t < r * 0.55; t++) { px(x, y - t, trunk); px(x + 1, y - t, trunkD); }
-    blob(x, y - r * 0.95, r, r * 0.9, tone, rnd);
-    for (let k = 0; k < r * 0.6; k++) { const a = rnd() * Math.PI * 2, d = rnd() * r * 0.5; px(x - r * 0.3 + Math.cos(a) * d, y - r * 1.25 + Math.sin(a) * d * 0.8, tone.hi); }
+    shadow(x + r * (0.35 + rnd() * 0.3), y + r * 0.25, r * (0.8 + rnd() * 0.4), r * (0.35 + rnd() * 0.15));
+    const th = r * (0.4 + rnd() * 0.5);
+    if (r >= 3.5) for (let t = 0; t < th + r * 0.5; t++) { const bx = x + lean * t; px(bx, y - t, trunk); px(bx + 1, y - t, trunkD); if (r > 7 && t > th && rnd() < 0.25) px(bx + (rnd() < .5 ? -2 : 3), y - t - 1, trunkD); }
+    canopy(x + lean * (th + r * 0.6), y - th - r * (0.55 + rnd() * 0.25), r, tone, rnd, 0.8 + rnd() * 0.35);
   } else if (type === "bush") {
-    shadow(x + r * 0.35, y + r * 0.1, r * 1.1, r * 0.35);
-    blob(x, y - r * 0.35, r * 1.15, r * 0.6, tone, rnd);
+    shadow(x + r * 0.35, y + r * 0.1, r * (0.9 + rnd() * 0.5), r * 0.35);
+    canopy(x, y - r * 0.3, r * (0.75 + rnd() * 0.35), tone, rnd, 0.55 + rnd() * 0.2);
   } else if (type === "palm") {
-    shadow(x + r * 0.5, y + r * 0.2, r * 0.7, r * 0.3);
-    const h = r * 1.9; for (let t = 0; t < h; t++) { const bend = Math.sin(t / h * 1.2) * r * 0.25; px(x + bend, y - t, trunk); px(x + bend + 1, y - t, trunkD); }
-    const tx = x + Math.sin(1.2) * r * 0.25, ty = y - h;
-    for (let f = 0; f < 7; f++) { const a = -Math.PI / 2 + (f - 3) * 0.55 + (rnd() - .5) * 0.2; for (let t = 1; t < r * 1.1; t++) { const droop = (t / r) ** 2 * r * 0.35; const fx = tx + Math.cos(a) * t, fy = ty + Math.sin(a) * t * 0.7 + droop; px(fx, fy, t > r * 0.85 ? tone.ink : f % 2 ? tone.mid : tone.hi); px(fx, fy + 1, tone.lo); } }
+    shadow(x + r * 0.5, y + r * 0.2, r * 0.6, r * 0.28);
+    const h = r * (1.4 + rnd() * 1.0), curve = (rnd() - .5) * 0.8;
+    for (let t = 0; t < h; t++) { const bend = Math.sin(t / h * 1.3) * r * curve; px(x + bend, y - t, (t | 0) % 3 ? trunk : trunkD); px(x + bend + 1, y - t, trunkD); }
+    const tx = x + Math.sin(1.3) * r * curve, ty = y - h, nf = 5 + ((rnd() * 5) | 0), rot = (rnd() - .5) * 0.6;
+    for (let f = 0; f < nf; f++) {
+      const a = -Math.PI / 2 + rot + (f - (nf - 1) / 2) * (2.6 / nf) + (rnd() - .5) * 0.35, len = r * (0.8 + rnd() * 0.5), dr = 0.25 + rnd() * 0.25;
+      for (let t = 1; t < len; t++) { const droop = (t / r) ** 2 * r * dr; const fx = tx + Math.cos(a) * t, fy = ty + Math.sin(a) * t * 0.7 + droop; px(fx, fy, t > len * 0.85 ? tone.ink : rnd() < 0.5 ? tone.mid : tone.hi); px(fx, fy + 1, tone.lo); }
+    }
   } else if (type === "araucaria") { // pinheiro-do-paraná: tronco alto e copa em "taça" de camadas chatas
     shadow(x + r * 0.6, y + r * 0.25, r * 1.1, r * 0.35);
-    const h = r * 2.2; for (let t = 0; t < h; t++) { px(x, y - t, trunk); px(x + 1, y - t, trunkD); }
-    for (let k = 0; k < 3; k++) { const ly = y - h + k * r * 0.35, w = r * (1.25 - k * 0.15); blob(x, ly, w, r * 0.22, tone, rnd); }
+    const h = r * (1.7 + rnd() * 0.9); for (let t = 0; t < h; t++) { const bx = x + lean * t * 0.5; px(bx, y - t, trunk); px(bx + 1, y - t, trunkD); }
+    const nl = 2 + ((rnd() * 3) | 0), top = x + lean * h * 0.5;
+    for (let k = 0; k < nl; k++) { const ly = y - h + k * r * (0.28 + rnd() * 0.12), w = r * (1.1 + rnd() * 0.35 - k * 0.12); blob(top + (rnd() - .5) * r * 0.3, ly, w, r * (0.18 + rnd() * 0.1), tone, rnd); }
   }
 }
 $("#tr-size").oninput = () => { const v = +$("#tr-size").value; $("#tr-sv").textContent = `${v} px ≈ ${Math.round(v * 2 * M.mpp)} m`; };
