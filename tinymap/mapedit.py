@@ -361,14 +361,22 @@ class MapEdit:
         from . import geo
         lat, lon = geo.to_ll(self.aff(), x, y)
         pt = Point(lon, lat)
-        best = None
+        best = near = None
         for f in self._water()[0]:
             for ring in f["rings"]:
                 if len(ring) < 4:
                     continue
                 pg = Polygon([(b, a) for a, b in ring], [[(b, a) for a, b in h] for h in f.get("holes", []) if len(h) >= 4])
-                if pg.is_valid and pg.contains(pt) and (best is None or pg.area < best[1].area):
+                if not pg.is_valid:
+                    pg = pg.buffer(0)
+                if pg.contains(pt) and (best is None or pg.area < best[1].area):
                     best = (f, pg, ring)
+                # a água é desenhada com ~10 m de folga em volta do contorno: vale clicar até 30 m dele
+                d = pg.distance(pt)
+                if not pg.contains(pt) and d < 0.0003 and (near is None or d < near[3]):
+                    near = (f, pg, ring, d)
+        if not best and near:
+            best = near[:3]
         if not best:
             return None
         f, pg, ring = best
@@ -418,6 +426,7 @@ class MapEdit:
                         f2.unlink()
                     if (r, c) not in shots:
                         shots.append((r, c))
+        self.rc._shot.cache_clear()
         self.rerender()
         return shots
 
@@ -454,6 +463,8 @@ class MapEdit:
     def rerender_status(self) -> dict:
         rr = getattr(self, "rr", None)
         running = rr is not None and rr.poll() is None
+        if not running:
+            self.rc._shot.cache_clear()  # a maquete mudou no disco: não servir a versão antiga da memória
         if not running and getattr(self, "rr_again", False):
             self.rerender()
             running = True

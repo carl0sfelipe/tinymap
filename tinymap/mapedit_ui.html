@@ -990,26 +990,32 @@ async function dataWaterToLand(lake) {
   const [bw, bh] = boxWH(b);
   if (bw * bh > 4096 * 4096) { toast("Essa água é grande demais para trocar de uma vez (rio principal?). Use 🌊 para editar o contorno.", 6000); return; }
   busy("tirando a água dos dados…"); const res = await api("/api/water_delete", { id: lake.id });
+  // espera a maquete ser renderizada sem a água: só ela mostra as ruas que a água cobria
+  busy("renderizando a maquete sem a água…");
+  for (let i = 0; i < 180; i++) { await new Promise((r) => setTimeout(r, 1000)); if (!(await api("/api/rerender")).running) break; }
+  for (const [r, c] of res.shots) shotVer[`${r}_${c}`] = Date.now();
   await startEditBox(b); pushUndo();
   const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, rd = edit.renData.data;
   const core = new Uint8Array(N); rasterPoly(lake.px.map(([x, y]) => [x - b[0], y - b[1]]), core, W, H);
   const reach = dilate(core, W, H, 48), m = dilate(core, W, H, 6);
   for (let q = 0; q < N; q++) if (reach[q] && wetish(d, q * 4)) m[q] = 1;
-  const m2 = dilate(m, W, H, 2); let nr = 0, ng = 0;
+  const m2 = dilate(m, W, H, 2), rest = new Uint8Array(N); let nr = 0, ng = 0;
+  const allRoad = quick === "road";
   for (let q = 0; q < N; q++) {
     if (!m2[q] || !edit.hasArt[q]) continue; const i = q * 4;
-    const road = Math.abs(rd[i] - rd[i + 1]) < 8 && Math.abs(rd[i + 1] - rd[i + 2]) < 8 && rd[i] > 100 && rd[i] < 150;
-    const c = road ? [108, 116, 116] : [116, 204, 100]; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; road ? nr++ : ng++;
+    const road = allRoad || (Math.abs(rd[i] - rd[i + 1]) < 10 && Math.abs(rd[i + 1] - rd[i + 2]) < 12 && rd[i] > 100 && rd[i] < 160);
+    if (road) { d[i] = 108; d[i + 1] = 116; d[i + 2] = 116; nr++; } else { rest[q] = 1; ng++; }
   }
+  if (ng) fillTerrain(rest, new Uint8Array(N));       // quintal/grama/árvore copiados do próprio bairro
   refresh(); busy("aplicando no mapa…");
   try {
-    const label = quick === "road" ? "rio (dados) → rua" : "rio (dados) → terreno";
+    const label = allRoad ? "rio (dados) → rua" : "rio (dados) → terreno";
     const j = await api("/api/apply", { box: edit.box, png: editPNG(edit.buf), note: label });
     for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
     edit = null; editUI(); loadHist();
-    toast(`✓ ${lake.id} tirado dos dados: ${fmt(nr)} px viraram rua e ${fmt(ng)} px grama. Ctrl+Z desfaz o desenho.`, 7000);
+    toast(`✓ ${lake.id} tirado dos dados: ${fmt(nr)} px viraram rua e ${fmt(ng)} px terreno do bairro. Ctrl+Z desfaz o desenho.`, 7000);
   } catch (e) { alert("Erro ao aplicar: " + e.message); }
-  busy(); draw(); pollRerender(res.shots);
+  busy(); draw();
 }
 // rua: cinza do asfalto da própria área (ou um cinza padrão) com borda escura de 1 px, no estilo do mapa
 // PNG da edição com transparência: pixel sem desenho que não foi mexido continua sem desenho
