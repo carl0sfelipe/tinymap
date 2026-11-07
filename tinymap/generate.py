@@ -230,9 +230,15 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
             time.sleep(15)
             waited += 15
             if waited >= STEAL_AFTER:
-                for b in mine:
-                    if not (state / f"{b['id']}.done").exists():
-                        print(f"[{b['id']}] pendente há {waited // 60} min: assumindo", flush=True)
-                        paint(b, phase)
+                for i, b in enumerate(mine):
+                    if (state / f"{b['id']}.done").exists():
+                        continue
+                    ck = state / f"{b['id']}.painted.png"
+                    if ck.exists() and time.time() - ck.stat().st_mtime < 3600:
+                        continue  # já pintado há menos de 1 h: o dono está vivo, consertando
+                    if shard and (i % shard[1] + 1) % shard[1] != shard[0]:
+                        continue  # só o worker seguinte ao dono assume (senão todos pegam o mesmo bloco)
+                    print(f"[{b['id']}] pendente há {waited // 60} min: assumindo", flush=True)
+                    paint(b, phase)
                 waited = 0
     print("all phases finished")
