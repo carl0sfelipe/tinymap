@@ -93,7 +93,8 @@ NO_WATER = (" There is no river, lake, pond or canal in this part of the view: d
 ONLY_WATER = " This part of the view is open river water: draw only water with small ripples, no land, no buildings."
 
 
-def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 2, log=print):
+def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 1, log=print,
+           max_share: float = 0.30):
     """Redesenha só os pedaços com água inventada ou terra no rio (o resto fica fixo por pinning)."""
     W, H = img.size
     for t in range(tries):
@@ -103,6 +104,9 @@ def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tri
         log(f"  conserto {t + 1}: água inventada {invented.mean():.1%}, terra no rio {land.mean():.1%}")
         for bad, hint in ((invented, NO_WATER), (land, ONLY_WATER)):
             if bad.mean() < 0.0005:
+                continue
+            if bad.mean() > max_share:  # mais de 30% do bloco: provavelmente a regra de cor, não a arte
+                log(f"  conserto pulado ({bad.mean():.0%} marcado)")
                 continue
             grow = grow_mask(bad)
             T = 2048
@@ -114,11 +118,11 @@ def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tri
                     ys, xs = np.nonzero(sub)
                     x0, x1 = tx + xs.min() - 512, tx + xs.max() + 512
                     y0, y1 = ty + ys.min() - 512, ty + ys.max() + 512
-                    w = max(g["window_px"], (x1 - x0 + 15) // 16 * 16)
-                    h = max(g["window_px"], (y1 - y0 + 15) // 16 * 16)
-                    x0 = int(min(max(0, x0), W - w)) // 16 * 16
-                    y0 = int(min(max(0, y0), H - h)) // 16 * 16
-                    w, h = min(w, W - x0) // 16 * 16, min(h, H - y0) // 16 * 16
+                    # caixa entre 1 janela e o bloco inteiro; antes, caixa maior que o bloco dava x0 negativo
+                    w = min(W // 16 * 16, max(g["window_px"], (x1 - x0 + 15) // 16 * 16))
+                    h = min(H // 16 * 16, max(g["window_px"], (y1 - y0 + 15) // 16 * 16))
+                    x0 = int(max(0, min(x0, W - w))) // 16 * 16
+                    y0 = int(max(0, min(y0, H - h))) // 16 * 16
                     box = (x0, y0, x0 + w, y0 + h)
                     fixed = model.joint(render.crop(box), prompt + hint, pinned=img.crop(box),
                                         pin_mask=~grow[y0:y0 + h, x0:x0 + w], steps=g["steps"],
@@ -137,6 +141,10 @@ def _claim(lock: Path) -> bool:
         return True
     except FileExistsError:
         return False
+
+
+def checkpoint() -> None:
+    """Gancho para o Volume da Modal publicar o checkpoint (modal_app troca por runs.commit)."""
 
 
 def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int] | None = None) -> None:
@@ -174,9 +182,19 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
         core[y0 - cy0:y1 - cy0, x0 - cx0:x1 - cx0] = True
         pin = have & ~core
         print(f"[{b['id']} phase {phase}] {box}, pinned {pin.mean():.0%}", flush=True)
-        img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
-                          steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
-                          window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
+        painted = state / f"{b['id']}.painted.png"
+        if painted.exists():  # a GPU foi tomada (preempção) depois da pintura: retoma do conserto
+            from PIL import Image
+            img = Image.open(painted).convert("RGB")
+            print(f"[{b['id']}] retomando do checkpoint", flush=True)
+        else:
+            img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
+                              steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
+                              window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
+            tmp = state / f".{b['id']}.painted.png"
+            img.save(tmp)
+            tmp.rename(painted)
+            checkpoint()
         if g.get("repair", True):
             img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"])
         core_img = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
@@ -188,6 +206,7 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
             core_img = pad
         ac.write((x0, y0), core_img)
         done.write_text(json.dumps({"seconds": round(time.time() - t0), "box": b["box"]}))
+        painted.unlink(missing_ok=True)
         lock.unlink(missing_ok=True)
         print(f"[{b['id']}] done in {time.time() - t0:.0f}s", flush=True)
 

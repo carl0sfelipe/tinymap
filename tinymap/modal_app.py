@@ -150,6 +150,7 @@ def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = Fal
 
     G._claim, R.Canvas.write = claim, write
     G.time.sleep = sleep
+    G.checkpoint = runs.commit  # arte pintada antes do conserto: sobrevive à preempção
     gen_worker(run, model, shard=(worker_id, n_workers) if n_workers else None)
     runs.commit()
 
