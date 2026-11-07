@@ -31,8 +31,8 @@ header label { color: var(--muted); display: flex; gap: 4px; align-items: center
 #sres div { padding: 6px 8px; cursor: pointer; }
 #sres div:hover { background: var(--panel2); }
 main { display: grid; grid-template-columns: 46px minmax(0, 1fr) 320px; min-height: 0; }
-#tools { display: flex; flex-direction: column; gap: 4px; padding: 6px 5px; background: var(--panel); border-right: 1px solid var(--line); }
-#tools button { width: 36px; height: 36px; padding: 0; font-size: 16px; }
+#tools { display: flex; flex-direction: column; gap: 3px; padding: 6px 5px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
+#tools button { width: 36px; height: 34px; padding: 0; font-size: 16px; flex: 0 0 auto; }
 #tools hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 #wrap { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
 #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0b0d10; touch-action: none; }
@@ -74,13 +74,13 @@ footer a { color: var(--accent); }
     <div class="grp">
       <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button>
       <button id="l-ren" title="Só a maquete com satélite">Maquete</button>
-      <button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o mouse do meio ou a tecla V)">Cortina</button>
+      <button id="l-cur" title="Cortina: maquete à esquerda, arte à direita (arraste com o botão do meio; tecla T)">Cortina</button>
     </div>
     <div class="grp">
       <label><input type="checkbox" id="o-area" checked> área</label>
       <label><input type="checkbox" id="o-grid"> shots</label>
       <label><input type="checkbox" id="o-iso"> grade iso</label>
-      <label><input type="checkbox" id="o-prob" checked> defeitos</label>
+      <label><input type="checkbox" id="o-prob"> defeitos</label>
     </div>
     <div class="grp" style="margin-left:auto">
       <span class="sub" id="pubst"></span>
@@ -89,17 +89,25 @@ footer a { color: var(--accent); }
   </header>
   <main>
     <div id="tools">
-      <button data-tool="pan" title="Mover (H, ou segure espaço)">✋</button>
-      <button data-tool="sel" title="Selecionar área (S) · Shift = quadrado">⬚</button>
+      <button data-tool="pan" title="Mover o mapa (H, ou segure espaço)">✋</button>
+      <button data-tool="sel" title="Área para exportar/editar (S) · Shift = quadrado">⬚</button>
       <button data-tool="ref" title="Referência de estilo (R): um pedaço de arte boa">⭐</button>
       <button data-tool="measure" title="Régua (M): metros no chão e andares na vertical">📏</button>
       <hr>
-      <button data-tool="pencil" title="Lápis (B) · Alt+clique pega a cor">✏️</button>
-      <button data-tool="pick" title="Conta-gotas (I)">💧</button>
-      <button data-tool="clone" title="Carimbo (C): Alt+clique define a origem">🧬</button>
-      <button id="b-lake" title="Apagar lagoa: troca a água inventada da seleção pelo terreno em volta (L)">🏝️</button>
+      <button data-tool="wand" title="Varinha mágica (W): seleciona pela cor · Shift soma · Alt tira">🪄</button>
+      <button data-tool="lasso" title="Laço (Q): clique os cantos, duplo clique fecha · Shift soma · Alt tira">➰</button>
+      <button data-tool="move" title="Mover o que foi colado (V) · Enter fixa · Esc cancela">✥</button>
       <hr>
-      <button id="b-undo" title="Desfazer pincel (Ctrl+Z)">↶</button>
+      <button data-tool="pencil" title="Lápis (B) · Shift+clique = linha reta · Alt+clique pega a cor">✏️</button>
+      <button data-tool="fill" title="Balde de tinta (G) · tolerância e contíguo na aba Editar">🪣</button>
+      <button data-tool="pick" title="Conta-gotas (I)">💧</button>
+      <button data-tool="clone" title="Carimbo (C): Alt+clique define de onde copiar">🧬</button>
+      <button data-tool="dither" title="Pontilhado (D): xadrez com as duas cores, o sombreado da pixel art">▦</button>
+      <button data-tool="eraser" title="Borracha (E): volta ao original ou revela a maquete">🧽</button>
+      <button data-tool="iso" title="Prédio isométrico (U): arraste a diagonal da base · Shift = base quadrada · andares na aba Editar">🏠</button>
+      <button id="b-lake" title="Apagar lagoa (L): troca a água inventada pelo terreno em volta (na seleção mágica, se houver)">🏝️</button>
+      <hr>
+      <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
       <button id="b-fit" title="Ver o mapa inteiro (F)">⤢</button>
     </div>
     <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div>
@@ -108,6 +116,7 @@ footer a { color: var(--accent); }
     <aside>
       <div id="tabs">
         <button data-tab="sel" class="on">Seleção</button>
+        <button data-tab="ed">Editar</button>
         <button data-tab="imp">Importar</button>
         <button data-tab="prob">Defeitos</button>
         <button data-tab="hist">Histórico</button>
@@ -148,9 +157,35 @@ footer a { color: var(--accent); }
         <div class="row"><label>borda suave <input type="range" id="i-feather" min="0" max="64" value="16"> <span id="i-fv">16</span> px</label></div>
         <div class="row"><button id="b-reproc" disabled>Refazer ajustes</button></div>
         <div class="sub" id="impinfo"></div>
-        <h3>Pincel</h3>
-        <div class="row"><input type="color" id="color" value="#4a7a3a"><label>tamanho <input type="range" id="bsize" min="1" max="24" value="2"></label><span id="bsv">2</span></div>
+      </div>
+      <div class="tab" id="t-ed">
+        <div class="note">Pinte direto no mapa: a oficina abre a área em volta do clique (ou usa a ⬚). Nada vai para o mapa até “Aplicar”.</div>
+        <h3>Cores</h3>
+        <div class="row"><input type="color" id="color" value="#4a7a3a" title="cor principal"><input type="color" id="color2" value="#2e5a2a" title="cor secundária (pontilhado, paredes)">
+          <button id="b-swap" title="Trocar as cores (X)">⇄</button><label>tamanho <input type="range" id="bsize" min="1" max="24" value="2"></label><span id="bsv">2</span></div>
         <div id="pal"></div>
+        <h3>Balde e varinha</h3>
+        <div class="row"><label>tolerância <input type="range" id="tol" min="0" max="120" value="24"></label><span id="tolv">24</span>
+          <label><input type="checkbox" id="contig" checked> contíguo</label></div>
+        <h3>Seleção mágica</h3>
+        <div class="row"><span class="sub" id="maskinfo">nenhuma</span></div>
+        <div class="chips">
+          <button class="chip" id="m-all">tudo</button><button class="chip" id="m-inv">inverter</button>
+          <button class="chip" id="m-grow">expandir</button><button class="chip" id="m-shrink">contrair</button><button class="chip" id="m-clear">limpar</button>
+        </div>
+        <div class="chips" style="margin-top:6px">
+          <button class="chip" id="m-fill" title="Pinta a seleção mágica com a cor principal">preencher com cor</button>
+          <button class="chip" id="m-tex" title="Copia textura de onde você deu Alt+clique com o carimbo">preencher com textura</button>
+          <button class="chip" id="m-copy" title="Ctrl+C">copiar</button><button class="chip" id="m-paste" title="Ctrl+V">colar</button>
+          <button class="chip" id="m-flip" title="Espelha o que foi colado">espelhar</button><button class="chip" id="m-commit" title="Enter">fixar</button>
+        </div>
+        <h3>Trocar cor</h3>
+        <div class="row"><input type="color" id="rep-from" value="#3f7fc4" title="cor a trocar"><button id="b-repick" title="Clique no mapa para pegar a cor a trocar">pegar</button>
+          <span class="sub">→ cor principal</span><button id="b-replace">Trocar</button></div>
+        <h3>Borracha e prédio</h3>
+        <div class="row"><label>borracha volta para <select id="erase-src"><option value="base">o original</option><option value="ren">a maquete</option></select></label></div>
+        <div class="row"><label>prédio: <input type="number" id="iso-floors" min="1" max="40" value="2" style="width:56px"> andares</label>
+          <span class="sub">telhado = principal, paredes = secundária</span></div>
         <div class="sub" id="editinfo" style="margin-top:8px">Nada em edição.</div>
       </div>
       <div class="tab" id="t-prob">
@@ -263,12 +298,16 @@ function paint() {
       ctx.drawImage(edit.baseCv, edit.box[0], edit.box[1]);
       ctx.drawImage(src, 0, 0, w * split, h, edit.box[0], edit.box[1], w * split, h);
     } else ctx.drawImage(src, edit.box[0], edit.box[1]);
+    if (edit.maskCv) ctx.drawImage(edit.maskCv, edit.box[0], edit.box[1]);
+    if (edit.float) { ctx.drawImage(edit.float.cv, edit.box[0] + edit.float.x, edit.box[1] + edit.float.y); ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 1 / k; ctx.setLineDash([4 / k, 3 / k]); ctx.strokeRect(edit.box[0] + edit.float.x, edit.box[1] + edit.float.y, edit.float.img.width, edit.float.img.height); ctx.setLineDash([]); }
+    ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.lineWidth = 1 / k; ctx.strokeRect(edit.box[0], edit.box[1], w, h);
+    if (lasso && lasso.pts.length) { ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 1.5 / k; ctx.beginPath(); lasso.pts.forEach(([x, y], i) => (i ? ctx.lineTo(edit.box[0] + x + .5, edit.box[1] + y + .5) : ctx.moveTo(edit.box[0] + x + .5, edit.box[1] + y + .5))); if (mouseW) ctx.lineTo(mouseW[0], mouseW[1]); ctx.stroke(); }
   }
   const lw = 1 / k;
   if ($("#o-grid").checked) { ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = lw; for (let r = r0; r <= r1 + 1; r++) { ctx.beginPath(); ctx.moveTo(c0 * S, r * S); ctx.lineTo((c1 + 1) * S, r * S); ctx.stroke(); } for (let c = c0; c <= c1 + 1; c++) { ctx.beginPath(); ctx.moveTo(c * S, r0 * S); ctx.lineTo(c * S, (r1 + 1) * S); ctx.stroke(); } }
   if ($("#o-area").checked && M.area) { ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.setLineDash([8 / k, 6 / k]); ctx.lineWidth = 1.5 * lw; ctx.beginPath(); M.area.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
   if ($("#o-iso").checked && M.axes && k > 0.15) isoGrid(wx0, wy0, wx1, wy1, lw);
-  if ($("#o-prob").checked) { ctx.lineWidth = 2 * lw; for (const p of problems) { ctx.strokeStyle = p.kind === "terra no rio" ? "rgba(255,170,0,.9)" : "rgba(0,200,255,.9)"; ctx.strokeRect(p.box[0], p.box[1], p.box[2] - p.box[0], p.box[3] - p.box[1]); } }
+  if ($("#o-prob").checked || $("#t-prob").classList.contains("on")) { ctx.lineWidth = 2 * lw; for (const p of problems) { ctx.strokeStyle = p.kind === "terra no rio" ? "rgba(255,170,0,.9)" : "rgba(0,200,255,.9)"; ctx.strokeRect(p.box[0], p.box[1], p.box[2] - p.box[0], p.box[3] - p.box[1]); } }
   if (layer === "cur") { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#fff"; ctx.fillRect(cutX - 1, 0, 2, cv.height); ctx.setTransform(k, 0, 0, k, view.x, view.y); }
   for (const [b, col, name] of [[ref, "#ffb020", "referência"], [sel, "#ff4fd8", "seleção"]]) {
     if (!b) continue;
@@ -277,7 +316,7 @@ function paint() {
     ctx.fillText(`${name} ${w} × ${h} px`, b[0], b[1] - 4 / k);
   }
   if (meas) { ctx.strokeStyle = "#ffe14a"; ctx.lineWidth = 2 * lw; ctx.beginPath(); ctx.moveTo(meas[0], meas[1]); ctx.lineTo(meas[2], meas[3]); ctx.stroke(); }
-  if (mouseW && (tool === "pencil" || tool === "clone") && edit) { const z = +$("#bsize").value, o = Math.floor(z / 2); ctx.strokeStyle = "#fff"; ctx.lineWidth = lw; ctx.strokeRect(Math.floor(mouseW[0]) - o, Math.floor(mouseW[1]) - o, z, z); }
+  if (mouseW && ["pencil", "clone", "dither", "eraser"].includes(tool) && edit) { const z = +$("#bsize").value, o = Math.floor(z / 2); ctx.strokeStyle = "#fff"; ctx.lineWidth = lw; ctx.strokeRect(Math.floor(mouseW[0]) - o, Math.floor(mouseW[1]) - o, z, z); }
   $("#f-zoom").textContent = `zoom ${(view.s * 100).toFixed(1)}%`;
 }
 function isoGrid(wx0, wy0, wx1, wy1, lw) {
@@ -329,44 +368,66 @@ let curPreset = "";
 const PRESET_LABEL = { agua: "remover água inventada", predios: "mais detalhes nos prédios", verde: "árvores e verde", ruas: "ruas e carros", vida: "vida urbana", fiel: "fiel à maquete" };
 
 // ---------- ferramentas no mapa ----------
-function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : "crosshair"; if (["pencil", "clone", "pick"].includes(t)) startEdit(); }
+const PAINT = ["pencil", "fill", "pick", "clone", "dither", "eraser", "iso", "wand", "lasso", "move"];
+function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : t === "move" ? "move" : "crosshair"; if (PAINT.includes(t)) showTab("ed"); if (t !== "lasso" && lasso) { lasso = null; draw(); } }
 $("#tools").addEventListener("click", (e) => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
 const evW = (e) => { const r = cv.getBoundingClientRect(); return S2W((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
-cv.addEventListener("pointerdown", (e) => {
+let lasso = null, pickFrom = false, isoSnap = null;
+const L = (w) => [Math.floor(w[0] - edit.box[0]), Math.floor(w[1] - edit.box[1])];
+cv.addEventListener("pointerdown", async (e) => {
   cv.setPointerCapture(e.pointerId);
   const w = evW(e);
   if (e.button === 1 && layer === "cur") { drag = { curtain: true }; return; }
   if (e.button !== 0 || spaceDown || tool === "pan") { drag = { pan: true, sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
   if (tool === "sel" || tool === "ref") { drag = { box: true, x: snap(w[0]), y: snap(w[1]), which: tool }; return; }
   if (tool === "measure") { meas = [w[0], w[1], w[0], w[1]]; drag = { meas: true }; return; }
-  if (!edit || !inBox(w, edit.box)) return;
-  const lx = Math.floor(w[0] - edit.box[0]), ly = Math.floor(w[1] - edit.box[1]);
-  if (tool === "pick" || (tool === "pencil" && e.altKey)) return pickColor(lx, ly);
-  if (tool === "clone" && e.altKey) { cloneSrc = [lx, ly]; $("#editinfo").textContent = `Origem do carimbo em (${lx}, ${ly}). Agora pinte onde quer copiar.`; return; }
-  if (tool === "clone" && !cloneSrc) { $("#editinfo").textContent = "Alt+clique primeiro para escolher de onde copiar."; return; }
-  pushUndo(); drag = { paint: true, last: [lx, ly], off: tool === "clone" ? [cloneSrc[0] - lx, cloneSrc[1] - ly] : null };
-  stamp(lx, ly, drag.off); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw();
+  if (!PAINT.includes(tool)) return;
+  if (!(await ensureEdit(w))) return;
+  const [lx, ly] = L(w), W = edit.data.width, H = edit.data.height;
+  if (lx < 0 || ly < 0 || lx >= W || ly >= H) return;
+  if (pickFrom) { const d = edit.data.data, i = (ly * W + lx) * 4; $("#rep-from").value = hex(d[i], d[i + 1], d[i + 2]); pickFrom = false; info("Cor a trocar escolhida. Clique em “Trocar”."); return; }
+  if (tool === "pick" || ((tool === "pencil" || tool === "fill" || tool === "dither") && e.altKey)) return pickColor(lx, ly);
+  if (tool === "clone" && e.altKey) { cloneSrc = [lx, ly]; info(`Origem do carimbo em (${lx}, ${ly}). Agora pinte onde quer copiar.`); return; }
+  if (tool === "clone" && !cloneSrc) { info("Alt+clique primeiro para escolher de onde o carimbo copia."); return; }
+  if (tool === "wand") { wand(lx, ly, e.shiftKey ? "add" : e.altKey ? "sub" : "set"); return; }
+  if (tool === "lasso") {
+    if (!lasso) lasso = { pts: [], mode: e.shiftKey ? "add" : e.altKey ? "sub" : "set" };
+    const f = lasso.pts[0];
+    if (lasso.pts.length > 2 && (e.detail >= 2 || Math.hypot(lx - f[0], ly - f[1]) * view.s * devicePixelRatio < 10)) { closeLasso(); return; }
+    lasso.pts.push([lx, ly]); draw(); return;
+  }
+  if (tool === "move") { if (edit.float) drag = { float: true, sx: lx, sy: ly, fx: edit.float.x, fy: edit.float.y }; else info("Nada colado: copie (Ctrl+C) e cole (Ctrl+V) primeiro."); return; }
+  if (tool === "fill") { pushUndo(); bucket(lx, ly); refresh(); return; }
+  if (tool === "iso") { if (!M.axes) return; pushUndo(); isoSnap = new Uint8ClampedArray(edit.data.data); drag = { iso: true, a: [lx, ly] }; return; }
+  pushUndo();
+  if (tool === "pencil" && e.shiftKey && lastPt) { line(lastPt, [lx, ly], null); lastPt = [lx, ly]; refresh(); return; }
+  drag = { paint: true, last: [lx, ly], off: tool === "clone" ? [cloneSrc[0] - lx, cloneSrc[1] - ly] : null };
+  stamp(lx, ly, drag.off); lastPt = [lx, ly]; refresh();
 });
+let lastPt = null;
 cv.addEventListener("pointermove", (e) => {
   const w = evW(e); mouseW = w;
   $("#f-pos").textContent = `x ${Math.round(w[0])} y ${Math.round(w[1])}`;
   const ll = M && M.geo ? toLL(w[0], w[1]) : null; $("#f-ll").textContent = ll ? `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}` : "";
-  if (!drag) { if (edit) draw(); return; }
+  if (!drag) { if (edit || lasso) draw(); return; }
   if (drag.curtain) { const r = cv.getBoundingClientRect(); curtain = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); }
   else if (drag.pan) { view.x = drag.vx + (e.clientX - drag.sx) * devicePixelRatio; view.y = drag.vy + (e.clientY - drag.sy) * devicePixelRatio; }
   else if (drag.box) {
     let x1 = snap(w[0]), y1 = snap(w[1]);
     if (e.shiftKey) { const d = Math.max(Math.abs(x1 - drag.x), Math.abs(y1 - drag.y)); x1 = drag.x + Math.sign(x1 - drag.x || 1) * d; y1 = drag.y + Math.sign(y1 - drag.y || 1) * d; }
     const b = norm([drag.x, drag.y, x1, y1]);
-    if (drag.which === "ref") ref = b; else { sel = b; }
+    if (drag.which === "ref") ref = b; else sel = b;
     selUI();
   } else if (drag.meas) { meas[2] = w[0]; meas[3] = w[1]; measUI(); }
-  else if (drag.paint) { const lx = Math.floor(w[0] - edit.box[0]), ly = Math.floor(w[1] - edit.box[1]); line(drag.last, [lx, ly], drag.off); drag.last = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
+  else if (drag.paint) { const [lx, ly] = L(w); line(drag.last, [lx, ly], drag.off); drag.last = [lx, ly]; lastPt = [lx, ly]; edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
+  else if (drag.float) { const [lx, ly] = L(w); edit.float.x = drag.fx + lx - drag.sx; edit.float.y = drag.fy + ly - drag.sy; }
+  else if (drag.iso) { edit.data.data.set(isoSnap); isoBox(drag.a, L(w), e.shiftKey); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); }
   draw();
 });
-const endDrag = () => { if (drag && drag.box && drag.which === "sel") setSel(sel); if (drag && drag.paint) palUI(); drag = null; };
+const endDrag = () => { if (drag && drag.box && drag.which === "sel") setSel(sel); if (drag && (drag.paint || drag.iso)) palUI(); drag = null; isoSnap = null; };
 cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
-cv.addEventListener("wheel", (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * devicePixelRatio, py = (e.clientY - r.top) * devicePixelRatio; const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(16, Math.max(0.01, view.s * k)); view.x = px - (px - view.x) * s / view.s; view.y = py - (py - view.y) * s / view.s; view.s = s; draw(); }, { passive: false });
+cv.addEventListener("dblclick", () => { if (tool === "lasso" && lasso && lasso.pts.length > 2) closeLasso(); });
+cv.addEventListener("wheel", (e) => { e.preventDefault(); const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * devicePixelRatio, py = (e.clientY - r.top) * devicePixelRatio; const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(24, Math.max(0.01, view.s * k)); view.x = px - (px - view.x) * s / view.s; view.y = py - (py - view.y) * s / view.s; view.s = s; draw(); }, { passive: false });
 cv.addEventListener("contextmenu", (e) => e.preventDefault());
 const inBox = (w, b) => w[0] >= b[0] && w[0] < b[2] && w[1] >= b[1] && w[1] < b[3];
 function measUI() {
@@ -375,50 +436,204 @@ function measUI() {
   const ground = a && b ? meters(a, b) : px * M.mpp, up = M.axes ? Math.abs(dy) / Math.abs(M.axes.up[1]) : 0;
   $("#f-meas").textContent = `régua: ${px.toFixed(0)} px · ${ground.toFixed(1)} m no chão · se for altura: ${up.toFixed(1)} m ≈ ${(up / 3).toFixed(1)} andares`;
 }
+const info = (t) => { $("#editinfo").textContent = t; };
+const hex = (r, g, b) => "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+const rgbOf = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+function rgb() { return rgbOf($("#color").value); }
+function refresh() { edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw(); }
 
-// ---------- edição (pincel, carimbo, lagoa, importar) ----------
-async function startEdit() {
-  if (edit) return true;
-  if (!sel) { $("#editinfo").textContent = "Selecione uma área (⬚) primeiro: o pincel e o carimbo só mexem dentro dela."; return false; }
-  const [w, h] = boxWH(sel);
-  if (w * h > 4096 * 4096) { alert("Seleção grande demais para editar (máx. 4096 × 4096)."); return false; }
+// ---------- área de edição ----------
+async function ensureEdit(w) {
+  if (edit && (!w || inBox(w, edit.box))) return true;
+  if (edit) { if (!confirm("Aplicar a edição atual no mapa e começar outra aqui?")) return false; if (!(await applyEdit())) return false; }
+  let b;
+  if (sel && (!w || inBox(w, sel))) b = sel;
+  else if (w) { // a área visível em volta do clique, até 1536 x 1536
+    const [vx0, vy0] = S2W(0, 0), [vx1, vy1] = S2W(cv.width, cv.height), half = 768;
+    b = norm([snap(Math.max(vx0, w[0] - half)), snap(Math.max(vy0, w[1] - half)), snap(Math.min(vx1, w[0] + half)), snap(Math.min(vy1, w[1] + half))]);
+  } else { info("Selecione uma área (⬚) ou clique no mapa com uma ferramenta de pintura."); return false; }
+  return startEditBox(b);
+}
+async function startEdit() { return ensureEdit(null); }
+async function startEditBox(b) {
+  const [w, h] = boxWH(b);
+  if (w * h > 4096 * 4096) { alert("Área grande demais para editar (máx. 4096 × 4096)."); return false; }
   busy("carregando o recorte…");
-  const [img, ren] = await Promise.all([loadImg(`/api/crop?layer=mixed&x0=${sel[0]}&y0=${sel[1]}&x1=${sel[2]}&y1=${sel[3]}`),
-    loadImg(`/api/crop?layer=render&x0=${sel[0]}&y0=${sel[1]}&x1=${sel[2]}&y1=${sel[3]}`)]);
+  const [img, ren] = await Promise.all([loadImg(`/api/crop?layer=mixed&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`),
+    loadImg(`/api/crop?layer=render&x0=${b[0]}&y0=${b[1]}&x1=${b[2]}&y1=${b[3]}`)]);
   const mk = (im) => { const c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(im, 0, 0); return c; };
   const buf = mk(img), baseCv = mk(img), renCv = mk(ren);
-  edit = { box: [...sel], buf, baseCv, renData: renCv.getContext("2d").getImageData(0, 0, w, h), data: buf.getContext("2d").getImageData(0, 0, w, h), undo: [], imported: null, result: null };
-  busy(); editUI(); palUI(); draw(); return true;
+  edit = { box: [...b], buf, baseCv, baseData: baseCv.getContext("2d").getImageData(0, 0, w, h), renData: renCv.getContext("2d").getImageData(0, 0, w, h),
+    data: buf.getContext("2d").getImageData(0, 0, w, h), undo: [], imported: null, result: null, mask: null, maskCv: null, float: null };
+  busy(); editUI(); palUI(); maskUI(); draw(); return true;
 }
 function editUI() {
   const on = !!edit;
   $("#editbar").style.display = on ? "flex" : "none"; $("#b-reproc").disabled = !(edit && edit.imported);
   if (on) $("#ebinfo").textContent = `editando ${boxWH(edit.box).join(" × ")} px`;
-  $("#editinfo").textContent = on ? `Editando ${boxWH(edit.box).join(" × ")} px em (${edit.box[0]}, ${edit.box[1]}). Nada vai para o mapa até “Aplicar”.` : "Nada em edição.";
+  info(on ? `Editando ${boxWH(edit.box).join(" × ")} px em (${edit.box[0]}, ${edit.box[1]}). Nada vai para o mapa até “Aplicar”.` : "Nada em edição.");
 }
-function pushUndo() { if (!edit) return; if (edit.result) commitResult(); edit.undo.push(new ImageData(new Uint8ClampedArray(edit.data.data), edit.data.width, edit.data.height)); if (edit.undo.length > 15) edit.undo.shift(); }
+function pushUndo() { if (!edit) return; if (edit.result) commitResult(); edit.undo.push(new ImageData(new Uint8ClampedArray(edit.data.data), edit.data.width, edit.data.height)); if (edit.undo.length > 20) edit.undo.shift(); }
 function commitResult() { const x = edit.buf.getContext("2d"); x.drawImage(edit.result, 0, 0); edit.data = x.getImageData(0, 0, edit.buf.width, edit.buf.height); edit.result = null; $("#i-split").value = 100; }
-function rgb() { const c = $("#color").value; return [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)); }
+const inMask = (p) => !edit.mask || edit.mask[p];
+
+// ---------- pincéis ----------
 function stamp(x, y, off) {
-  const z = +$("#bsize").value, o = Math.floor(z / 2), d = edit.data.data, W = edit.data.width, H = edit.data.height, [r, g, b] = rgb();
+  const z = +$("#bsize").value, o = Math.floor(z / 2), d = edit.data.data, W = edit.data.width, H = edit.data.height, [r, g, b] = rgb(), [r2, g2, b2] = rgbOf($("#color2").value);
+  const src = tool === "eraser" ? ($("#erase-src").value === "ren" ? edit.renData.data : edit.baseData.data) : null;
   for (let yy = y - o; yy < y - o + z; yy++) for (let xx = x - o; xx < x - o + z; xx++) {
-    if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+    if (xx < 0 || yy < 0 || xx >= W || yy >= H || !inMask(yy * W + xx)) continue;
     const i = (yy * W + xx) * 4;
     if (off) { const sx = xx + off[0], sy = yy + off[1]; if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue; const j = (sy * W + sx) * 4; d[i] = d[j]; d[i + 1] = d[j + 1]; d[i + 2] = d[j + 2]; }
+    else if (src) { d[i] = src[i]; d[i + 1] = src[i + 1]; d[i + 2] = src[i + 2]; }
+    else if (tool === "dither" && (xx + yy) % 2) { d[i] = r2; d[i + 1] = g2; d[i + 2] = b2; }
     else { d[i] = r; d[i + 1] = g; d[i + 2] = b; }
     d[i + 3] = 255;
   }
 }
 function line(a, b, off) { let [x0, y0] = a; const [x1, y1] = b, dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx + dy; for (;;) { stamp(x0, y0, off); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } } }
-function pickColor(x, y) { const d = edit.data.data, i = (y * edit.data.width + x) * 4; $("#color").value = "#" + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join(""); }
+function pickColor(x, y) { const d = edit.data.data, i = (y * edit.data.width + x) * 4; $("#color").value = hex(d[i], d[i + 1], d[i + 2]); }
+
+// região por cor: contígua (preenchimento por inundação) ou todos os pixels parecidos
+function region(x, y) {
+  const W = edit.data.width, H = edit.data.height, d = edit.data.data, tol = +$("#tol").value, i0 = (y * W + x) * 4;
+  const t0 = d[i0], t1 = d[i0 + 1], t2 = d[i0 + 2], out = new Uint8Array(W * H);
+  const near = (p) => { const i = p * 4; return Math.abs(d[i] - t0) <= tol && Math.abs(d[i + 1] - t1) <= tol && Math.abs(d[i + 2] - t2) <= tol; };
+  if (!$("#contig").checked) { for (let p = 0; p < W * H; p++) if (near(p)) out[p] = 1; return out; }
+  const st = new Int32Array(W * H); let n = 0; st[n++] = y * W + x; out[y * W + x] = 1;
+  while (n) { const p = st[--n], px = p % W; for (const q of [px > 0 ? p - 1 : -1, px < W - 1 ? p + 1 : -1, p - W, p + W]) if (q >= 0 && q < W * H && !out[q] && near(q)) { out[q] = 1; st[n++] = q; } }
+  return out;
+}
+function bucket(x, y) {
+  const reg = region(x, y), d = edit.data.data, [r, g, b] = rgb(); let n = 0;
+  for (let p = 0; p < reg.length; p++) if (reg[p] && inMask(p)) { const i = p * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; n++; }
+  info(`Balde: ${fmt(n)} px pintados.`);
+}
+
+// ---------- seleção mágica (máscara) ----------
+function setMask(m, mode) {
+  if (mode === "add" && edit.mask) for (let p = 0; p < m.length; p++) m[p] = m[p] || edit.mask[p];
+  if (mode === "sub" && edit.mask) { const o = edit.mask; for (let p = 0; p < m.length; p++) m[p] = o[p] && !m[p] ? 1 : 0; }
+  else if (mode === "sub") return;
+  let n = 0; for (let p = 0; p < m.length; p++) n += m[p];
+  edit.mask = n ? m : null; maskUI(); draw();
+}
+function wand(x, y, mode) { setMask(region(x, y), mode); }
+function closeLasso() {
+  const W = edit.data.width, H = edit.data.height, pts = lasso.pts, m = new Uint8Array(W * H);
+  const ys = pts.map((p) => p[1]), y0 = Math.max(0, Math.min(...ys)), y1 = Math.min(H - 1, Math.max(...ys));
+  for (let y = y0; y <= y1; y++) { // varredura par-ímpar
+    const xs = [];
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y + 0.5) !== (yj > y + 0.5)) xs.push(xi + (y + 0.5 - yi) * (xj - xi) / (yj - yi)); }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) for (let x = Math.max(0, Math.ceil(xs[k] - 0.5)); x <= Math.min(W - 1, Math.floor(xs[k + 1] - 0.5)); x++) m[y * W + x] = 1;
+  }
+  const mode = lasso.mode; lasso = null; setMask(m, mode);
+}
+function maskUI() {
+  if (!edit || !edit.mask) { if (edit) edit.maskCv = null; $("#maskinfo").textContent = "nenhuma (varinha 🪄 ou laço ➰)"; return; }
+  const W = edit.data.width, H = edit.data.height, m = edit.mask, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d"), id = x.createImageData(W, H), d = id.data; let n = 0;
+  for (let p = 0; p < W * H; p++) {
+    if (!m[p]) continue; n++;
+    const px = p % W, edge = px === 0 || px === W - 1 || p < W || p >= W * (H - 1) || !m[p - 1] || !m[p + 1] || !m[p - W] || !m[p + W];
+    const i = p * 4; d[i] = 255; d[i + 1] = edge ? 255 : 79; d[i + 2] = edge ? 255 : 216; d[i + 3] = edge ? 230 : 60;
+  }
+  x.putImageData(id, 0, 0); edit.maskCv = c;
+  $("#maskinfo").textContent = `${fmt(n)} px selecionados`;
+}
+const needMask = () => { if (!edit || !edit.mask) { info("Faça uma seleção mágica primeiro (varinha 🪄 ou laço ➰)."); return false; } return true; };
+$("#m-all").onclick = async () => { if (!(await startEdit())) return; setMask(new Uint8Array(edit.data.width * edit.data.height).fill(1), "set"); };
+$("#m-inv").onclick = () => { if (!needMask()) return; const m = edit.mask.map((v) => 1 - v); edit.mask = null; setMask(m, "set"); };
+$("#m-grow").onclick = () => { if (!needMask()) return; const m = dilate(edit.mask, edit.data.width, edit.data.height, 2); edit.mask = null; setMask(m, "set"); };
+$("#m-shrink").onclick = () => { if (!needMask()) return; const W = edit.data.width, H = edit.data.height, inv = dilate(edit.mask.map((v) => 1 - v), W, H, 2); const m = inv.map((v) => 1 - v); edit.mask = null; setMask(m, "set"); };
+$("#m-clear").onclick = () => { if (!edit) return; edit.mask = null; lasso = null; maskUI(); draw(); };
+$("#m-fill").onclick = () => { if (!needMask()) return; pushUndo(); const d = edit.data.data, [r, g, b] = rgb(); for (let p = 0; p < edit.mask.length; p++) if (edit.mask[p]) { const i = p * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; } refresh(); };
+$("#m-tex").onclick = () => {
+  if (!needMask()) return; if (!cloneSrc) { info("Com o carimbo 🧬, dê Alt+clique onde está a textura boa (grama, mata...) e volte aqui."); return; }
+  pushUndo(); const W = edit.data.width, H = edit.data.height, m = edit.mask, d = edit.data.data, src = new Uint8ClampedArray(d);
+  let sx = 0, sy = 0, n = 0; for (let p = 0; p < m.length; p++) if (m[p]) { sx += p % W; sy += (p / W) | 0; n++; }
+  const ox = cloneSrc[0] - Math.round(sx / n), oy = cloneSrc[1] - Math.round(sy / n);
+  for (let p = 0; p < m.length; p++) { if (!m[p]) continue; let x = p % W + ox, y = ((p / W) | 0) + oy; x = ((x % W) + W) % W; y = ((y % H) + H) % H; d.set(src.subarray((y * W + x) * 4, (y * W + x) * 4 + 4), p * 4); }
+  refresh(); info("Seleção preenchida com a textura da origem do carimbo.");
+};
+// copiar / colar / mover
+let clip = null;
+function copySel() {
+  if (!edit) return; const W = edit.data.width, H = edit.data.height, m = edit.mask, d = edit.data.data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let p = 0; p < W * H; p++) if (!m || m[p]) { const x = p % W, y = (p / W) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (x1 < 0) return; const w = x1 - x0 + 1, h = y1 - y0 + 1, out = new ImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const p = (y + y0) * W + x + x0, i = p * 4, o = (y * w + x) * 4; if (m && !m[p]) continue; out.data[o] = d[i]; out.data[o + 1] = d[i + 1]; out.data[o + 2] = d[i + 2]; out.data[o + 3] = 255; }
+  clip = out; info(`Copiado: ${w} × ${h} px. Ctrl+V cola; arraste com ✥ e Enter fixa.`);
+}
+function pasteClip() {
+  if (!edit || !clip) return; const at = mouseW && inBox(mouseW, edit.box) ? L(mouseW) : [edit.data.width / 2, edit.data.height / 2];
+  edit.float = { img: clip, x: Math.round(at[0] - clip.width / 2), y: Math.round(at[1] - clip.height / 2) }; floatCanvas(); setTool("move"); draw();
+}
+function floatCanvas() { const c = document.createElement("canvas"); c.width = edit.float.img.width; c.height = edit.float.img.height; c.getContext("2d").putImageData(edit.float.img, 0, 0); edit.float.cv = c; }
+function flipFloat() { if (!edit || !edit.float) return; const a = edit.float.img, w = a.width, h = a.height, o = new ImageData(w, h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) o.data.set(a.data.subarray((y * w + x) * 4, (y * w + x) * 4 + 4), (y * w + (w - 1 - x)) * 4); edit.float.img = o; floatCanvas(); draw(); }
+function commitFloat() {
+  if (!edit || !edit.float) return; pushUndo(); const f = edit.float, W = edit.data.width, H = edit.data.height, d = edit.data.data, s = f.img.data;
+  for (let y = 0; y < f.img.height; y++) for (let x = 0; x < f.img.width; x++) { const o = (y * f.img.width + x) * 4; if (!s[o + 3]) continue; const X = x + f.x, Y = y + f.y; if (X < 0 || Y < 0 || X >= W || Y >= H) continue; d.set(s.subarray(o, o + 4), (Y * W + X) * 4); }
+  edit.float = null; refresh(); info("Fixado.");
+}
+$("#m-copy").onclick = copySel; $("#m-paste").onclick = pasteClip; $("#m-flip").onclick = flipFloat; $("#m-commit").onclick = commitFloat;
+// trocar cor
+$("#b-repick").onclick = () => { pickFrom = true; info("Clique no mapa (dentro da área em edição) na cor que quer trocar."); };
+$("#b-replace").onclick = async () => {
+  if (!(await startEdit())) return; pushUndo();
+  const [f0, f1, f2] = rgbOf($("#rep-from").value), [r, g, b] = rgb(), tol = +$("#tol").value, d = edit.data.data; let n = 0;
+  for (let p = 0; p < d.length / 4; p++) { const i = p * 4; if (inMask(p) && Math.abs(d[i] - f0) <= tol && Math.abs(d[i + 1] - f1) <= tol && Math.abs(d[i + 2] - f2) <= tol) { d[i] = r; d[i + 1] = g; d[i + 2] = b; n++; } }
+  refresh(); info(`Cor trocada em ${fmt(n)} px.`);
+};
+
+// ---------- prédio isométrico ----------
+// base arrastada nos eixos do terreno (leste/norte); paredes e telhado com contorno de 1 px, no ângulo do mapa
+function isoBox(a, b, square) {
+  const E = M.axes.east, Nn = M.axes.north, U = M.axes.up, vx = b[0] - a[0], vy = b[1] - a[1], det = E[0] * Nn[1] - E[1] * Nn[0];
+  let me = (vx * Nn[1] - vy * Nn[0]) / det, mn = (E[0] * vy - E[1] * vx) / det;              // metros a leste e a norte
+  if (square) { const m = Math.max(Math.abs(me), Math.abs(mn)); me = Math.sign(me || 1) * m; mn = Math.sign(mn || 1) * m; }
+  const h = Math.max(1, +$("#iso-floors").value) * 3;
+  const P = [[0, 0], [me, 0], [me, mn], [0, mn]].map(([e, n]) => [a[0] + E[0] * e + Nn[0] * n, a[1] + E[1] * e + Nn[1] * n]);
+  const T = P.map(([x, y]) => [x + U[0] * h, y + U[1] * h]);
+  const roof = rgb(), wall = rgbOf($("#color2").value), dark = wall.map((v) => Math.round(v * 0.72)), ink = [30, 30, 36];
+  const cx = P.reduce((s, p) => s + p[0], 0) / 4, cy = P.reduce((s, p) => s + p[1], 0) / 4;
+  for (let i = 0; i < 4; i++) { // parede visível = normal para fora apontando para baixo na tela (para a câmera)
+    const p = P[i], q = P[(i + 1) % 4], mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+    let nx = q[1] - p[1], ny = -(q[0] - p[0]); if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
+    if (ny > 0) fillPoly([p, q, T[(i + 1) % 4], T[i]], nx > 0 ? dark : wall);
+  }
+  fillPoly(T, roof);
+  for (let i = 0; i < 4; i++) { linePx(T[i], T[(i + 1) % 4], ink); }
+  for (let i = 0; i < 4; i++) { const p = P[i], q = P[(i + 1) % 4], mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2; let nx = q[1] - p[1], ny = -(q[0] - p[0]); if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; } if (ny > 0) { linePx(p, q, ink); linePx(p, T[i], ink); linePx(q, T[(i + 1) % 4], ink); } }
+  info(`Prédio: ${Math.abs(me).toFixed(0)} × ${Math.abs(mn).toFixed(0)} m, ${h / 3} andares. Solte para fixar; Ctrl+Z desfaz.`);
+}
+function fillPoly(pts, [r, g, b]) {
+  const W = edit.data.width, H = edit.data.height, d = edit.data.data, ys = pts.map((p) => p[1]);
+  for (let y = Math.max(0, Math.floor(Math.min(...ys))); y <= Math.min(H - 1, Math.ceil(Math.max(...ys))); y++) {
+    const xs = []; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y + 0.5) !== (yj > y + 0.5)) xs.push(xi + (y + 0.5 - yi) * (xj - xi) / (yj - yi)); }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) for (let x = Math.max(0, Math.round(xs[k])); x < Math.min(W, Math.round(xs[k + 1])); x++) { const p = y * W + x; if (!inMask(p)) continue; const i = p * 4; d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255; }
+  }
+}
+function linePx(a, b, [r, g, bl]) {
+  const W = edit.data.width, H = edit.data.height, d = edit.data.data; let [x0, y0] = a.map(Math.round); const [x1, y1] = b.map(Math.round);
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx + dy;
+  for (;;) { if (x0 >= 0 && y0 >= 0 && x0 < W && y0 < H && inMask(y0 * W + x0)) { const i = (y0 * W + x0) * 4; d[i] = r; d[i + 1] = g; d[i + 2] = bl; d[i + 3] = 255; } if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+}
+
 function palUI() {
   const cols = new Map(); if (edit) { const d = edit.data.data; for (let i = 0; i < d.length; i += 64) { const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3); cols.set(k, (cols.get(k) || 0) + 1); } }
   const local = [...cols.entries()].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([k]) => "#" + [(k >> 10) & 31, (k >> 5) & 31, k & 31].map((v) => (v * 8 + 4).toString(16).padStart(2, "0")).join(""));
-  $("#pal").innerHTML = [...local, ...palette.slice(0, 24)].map((c) => `<div style="background:${c}" data-c="${c}" title="${c}"></div>`).join("");
+  $("#pal").innerHTML = [...local, ...palette.slice(0, 24)].map((c) => `<div style="background:${c}" data-c="${c}" title="${c} · clique = principal, botão direito = secundária"></div>`).join("");
 }
 $("#pal").onclick = (e) => { if (e.target.dataset.c) $("#color").value = e.target.dataset.c; };
+$("#pal").oncontextmenu = (e) => { e.preventDefault(); if (e.target.dataset.c) $("#color2").value = e.target.dataset.c; };
+$("#b-swap").onclick = () => { const a = $("#color").value; $("#color").value = $("#color2").value; $("#color2").value = a; };
 $("#bsize").oninput = () => { $("#bsv").textContent = $("#bsize").value; };
-$("#b-undo").onclick = () => { if (!edit || !edit.undo.length) return; edit.data = edit.undo.pop(); edit.buf.getContext("2d").putImageData(edit.data, 0, 0); draw(); };
+$("#tol").oninput = () => { $("#tolv").textContent = $("#tol").value; };
+$("#b-undo").onclick = () => { if (!edit || !edit.undo.length) return; edit.result = null; edit.data = edit.undo.pop(); refresh(); };
 
 // apagar lagoa: água inventada (azul ou turquesa fora do rio da maquete) vira o terreno em volta
 const wet = (d, i) => d[i + 2] - d[i] > 60 && d[i + 2] - d[i + 1] > 15;         // regra estrita (rio pintado na maquete)
@@ -430,7 +645,7 @@ $("#b-lake").onclick = async () => {
   const river = new Uint8Array(N); for (let p = 0; p < N; p++) river[p] = wet(rd, p * 4) ? 1 : 0;
   const near = dilate(river, W, H, 12);                                           // o rio de verdade fica intocado
   let mask = new Uint8Array(N); for (let p = 0; p < N; p++) if (wetish(d, p * 4) && !near[p]) mask[p] = 1;
-  mask = dilate(mask, W, H, 2); for (let p = 0; p < N; p++) if (near[p]) mask[p] = 0;  // pega a borda clara da lagoa
+  mask = dilate(mask, W, H, 2); for (let p = 0; p < N; p++) if (near[p] || !inMask(p)) mask[p] = 0;  // borda clara; só na seleção mágica
   let n = 0; for (let p = 0; p < N; p++) n += mask[p];
   if (!n) { busy(); $("#editinfo").textContent = "Nenhuma água inventada nesta seleção."; return; }
   // 1) textura: acha um deslocamento onde a origem é terreno sem água e copia (mata vira mata, grama vira grama)
@@ -475,8 +690,10 @@ function dilate(m, W, H, r) { // dilatação separável (máximo numa janela de 
 
 // importar: colar ou arquivo -> tamanho da seleção -> alinhar, paleta, pixel nítido, borda suave
 addEventListener("paste", async (e) => {
+  if (e.target.matches && e.target.matches("input, textarea")) return;
   const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-  if (!it) return; e.preventDefault(); importBlob(it.getAsFile());
+  if (it) { e.preventDefault(); importBlob(it.getAsFile()); return; }
+  if (clip && edit) { e.preventDefault(); pasteClip(); }
 });
 $("#file").onchange = (e) => { if (e.target.files[0]) importBlob(e.target.files[0]); };
 async function importBlob(blob) {
@@ -530,18 +747,19 @@ function quantize(nd, old) { // cada pixel vai para a cor mais próxima da palet
 }
 function feather(nd, old, f) { const W = nd.width, H = nd.height, d = nd.data, o = old.data; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const t = Math.min(x, y, W - 1 - x, H - 1 - y) / f; if (t >= 1) continue; const i = (y * W + x) * 4; for (let k = 0; k < 3; k++) d[i + k] = o[i + k] + (d[i + k] - o[i + k]) * t; } }
 
-$("#b-cancel").onclick = () => { edit = null; editUI(); draw(); };
-$("#b-apply").onclick = async () => {
-  if (!edit) return;
-  const src = edit.result || edit.buf, note = edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "pincel/lagoa";
+$("#b-cancel").onclick = () => { edit = null; lasso = null; editUI(); draw(); };
+async function applyEdit() {
+  if (!edit) return true;
+  if (edit.float) commitFloat();
+  const src = edit.result || edit.buf, note = edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "edição à mão";
   busy("aplicando no mapa…");
   try {
     const j = await api("/api/apply", { box: edit.box, png: src.toDataURL("image/png"), note });
     for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
-    edit = null; editUI(); loadHist();
-  } catch (e) { alert("Erro ao aplicar: " + e.message); }
-  busy(); draw();
-};
+    edit = null; lasso = null; editUI(); loadHist(); busy(); draw(); return true;
+  } catch (e) { alert("Erro ao aplicar: " + e.message); busy(); return false; }
+}
+$("#b-apply").onclick = applyEdit;
 
 // ---------- exportar ----------
 $("#presets").innerHTML = "";
@@ -596,16 +814,23 @@ const setLayer = (l) => { layer = l; [["#l-art", "art"], ["#l-ren", "ren"], ["#l
 $("#l-art").onclick = () => setLayer("art"); $("#l-ren").onclick = () => setLayer("ren"); $("#l-cur").onclick = () => setLayer("cur");
 ["#o-area", "#o-grid", "#o-iso", "#o-prob"].forEach((s) => $(s).addEventListener("change", draw));
 function showTab(t) { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t)); document.querySelectorAll(".tab").forEach((d) => d.classList.toggle("on", d.id === `t-${t}`)); }
-$("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); if (b && b.dataset.tab === "hist") loadHist(); };
+$("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); if (b && b.dataset.tab === "hist") loadHist(); draw(); };
 $("#b-fit").onclick = fit;
 addEventListener("keydown", (e) => {
   if (e.target.matches("input, textarea, select")) return;
   const k = e.key.toLowerCase();
   if (e.key === " ") { spaceDown = true; e.preventDefault(); return; }
   if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); $("#b-undo").click(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === "c" && edit) { e.preventDefault(); copySel(); return; }
+  if (e.key === "Enter" && edit && edit.float) { e.preventDefault(); commitFloat(); return; }
+  if (e.key === "Enter" && lasso && lasso.pts.length > 2) { e.preventDefault(); closeLasso(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (sel && e.key.startsWith("Arrow") && !edit) { e.preventDefault(); const d = e.shiftKey ? [0, 0, 16, 16] : [16, 16, 16, 16], s = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; setSel(e.shiftKey ? [sel[0], sel[1], sel[2] + s[0] * 16, sel[3] + s[1] * 16] : [sel[0] + s[0] * d[0], sel[1] + s[1] * d[1], sel[2] + s[0] * d[2], sel[3] + s[1] * d[3]]); return; }
-  const m = { h: () => setTool("pan"), s: () => setTool("sel"), r: () => setTool("ref"), m: () => setTool("measure"), b: () => setTool("pencil"), i: () => setTool("pick"), c: () => setTool("clone"), l: () => $("#b-lake").click(), f: fit, v: () => setLayer(layer === "cur" ? "art" : "cur"), escape: () => { meas = null; $("#f-meas").textContent = ""; draw(); } };
+  const m = { h: () => setTool("pan"), s: () => setTool("sel"), r: () => setTool("ref"), m: () => setTool("measure"), w: () => setTool("wand"), q: () => setTool("lasso"), v: () => setTool("move"),
+    b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"), d: () => setTool("dither"), e: () => setTool("eraser"), u: () => setTool("iso"),
+    l: () => $("#b-lake").click(), x: () => $("#b-swap").click(), f: fit, t: () => setLayer(layer === "cur" ? "art" : "cur"),
+    "[": () => { $("#bsize").value = +$("#bsize").value - 1; $("#bsize").oninput(); }, "]": () => { $("#bsize").value = +$("#bsize").value + 1; $("#bsize").oninput(); },
+    escape: () => { meas = null; $("#f-meas").textContent = ""; if (lasso) lasso = null; else if (edit && edit.float) edit.float = null; else if (edit && edit.mask) { edit.mask = null; maskUI(); } draw(); } };
   if (m[k]) { e.preventDefault(); m[k](); }
 });
 addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; });
