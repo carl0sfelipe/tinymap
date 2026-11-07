@@ -94,11 +94,13 @@ ONLY_WATER = " This part of the view is open river water: draw only water with s
 
 
 def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 1, log=print,
-           max_share: float = 0.30):
+           max_share: float = 0.30, area: np.ndarray | None = None):
     """Redesenha só os pedaços com água inventada ou terra no rio (o resto fica fixo por pinning)."""
     W, H = img.size
     for t in range(tries):
         invented, land = water_errors(img, render)
+        if area is not None:  # fora da área do mapa o site recorta: não vale gastar GPU consertando
+            invented, land = invented & area, land & area
         if invented.mean() + land.mean() < 0.001:
             break
         log(f"  conserto {t + 1}: água inventada {invented.mean():.1%}, terra no rio {land.mean():.1%}")
@@ -196,7 +198,11 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
             tmp.rename(painted)
             checkpoint()
         if g.get("repair", True):
-            img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"])
+            from PIL import Image, ImageDraw
+            am = Image.new("L", (cx1 - cx0, cy1 - cy0), 0)
+            ImageDraw.Draw(am).polygon([(x - cx0, y - cy0) for x, y in run.view["area_px"]], fill=255)
+            img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"],
+                         area=np.asarray(am) > 127)
         core_img = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
         # pad partial edge blocks to whole shots before writing
         if core_img.width % s or core_img.height % s:
