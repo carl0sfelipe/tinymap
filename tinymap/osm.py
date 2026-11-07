@@ -69,6 +69,14 @@ def _join(parts: list) -> list:
     return rings
 
 
+def water_height(run: Run) -> float:
+    """Altura da lâmina d'água na projeção. Na maquete OSM a água é desenhada no chão (target_height_m),
+    não na altura real do rio; usar water_height_m ali deslocava a máscara ~75 m (≈250 px) para baixo."""
+    if run.region.get("source") == "osm":
+        return run.region["camera"]["target_height_m"]
+    return run.region.get("water_height_m", 0)
+
+
 def fetch(run: Run) -> None:
     b = run.region["bbox"]
     pad = 0.01
@@ -84,7 +92,7 @@ def fetch(run: Run) -> None:
         outer, inner = _rings_of(el)
         if outer:
             feats.append({"id": f"{el['type'][0]}{el['id']}", "kind": "water", "rings": outer, "holes": inner})
-    json.dump({"h": run.region.get("water_height_m", 0), "features": feats}, open(run.path("osm", "water_ll.json"), "w"))
+    json.dump({"h": water_height(run), "features": feats}, open(run.path("osm", "water_ll.json"), "w"))
     node("project.mjs", run.dir, run.path("osm", "water_ll.json"), run.path("osm", "water_px.json"))
 
     places = _overpass(f"""[out:json][timeout:240];
@@ -112,7 +120,7 @@ def fetch(run: Run) -> None:
       way["boundary"="administrative"]["admin_level"="2"]({bbox}); out geom;""")
     lines = [{"id": f"w{el['id']}", "kind": "border", "rings": [[[p["lat"], p["lon"]] for p in el["geometry"]]]}
              for el in borders["elements"]]
-    json.dump({"h": run.region.get("water_height_m", 0), "features": lines}, open(run.path("osm", "borders_ll.json"), "w"))
+    json.dump({"h": water_height(run), "features": lines}, open(run.path("osm", "borders_ll.json"), "w"))
     node("project.mjs", run.dir, run.path("osm", "borders_ll.json"), run.path("osm", "borders_px.json"))
     print(f"water {len(feats)}  places {len(pts)}  border segments {len(lines)}")
 
