@@ -42,6 +42,91 @@ def blocks(run: Run) -> list[dict]:
     return out
 
 
+NO_WATER = (" There is no river, lake, pond or canal in this part of the view: draw the streets, yards, trees and"
+            " roofs that are there.")
+
+
+def _small(mask: np.ndarray, f: int) -> np.ndarray:
+    """Reduz uma máscara booleana por f (máximo em cada bloco f x f)."""
+    h, w = mask.shape
+    H, W = -(-h // f) * f, -(-w // f) * f
+    m = np.zeros((H, W), bool)
+    m[:h, :w] = mask
+    return m.reshape(H // f, f, W // f, f).any(axis=(1, 3))
+
+
+def _big(small: np.ndarray, f: int, shape) -> np.ndarray:
+    return np.repeat(np.repeat(small, f, 0), f, 1)[:shape[0], :shape[1]]
+
+
+def _filt(mask: np.ndarray, kind: str, k: int) -> np.ndarray:
+    from PIL import Image, ImageFilter
+    F = ImageFilter.MaxFilter if kind == "max" else ImageFilter.MinFilter
+    return np.asarray(Image.fromarray(mask.astype(np.uint8) * 255).filter(F(k))) > 127
+
+
+def water_errors(img, render, f: int = 4) -> tuple[np.ndarray, np.ndarray]:
+    """(água inventada, terra no rio), comparando a arte com o render.
+
+    No render o rio do OSM está pintado de azul e as pontes de cinza por cima, então "onde deve
+    haver água" sai do próprio render (e uma ponte nunca vira erro). Feito em 1/f da resolução:
+    os filtros do PIL ficam lentos demais em blocos de 8 mil px."""
+    from .checks import _wet
+    art = _wet(img)
+    ref = _small(_wet(render), f)
+    a = _filt(_filt(_small(art, f), "min", 3), "max", 3)      # sem pontinhos (~9 px na resolução cheia)
+    near = _filt(ref, "max", 2 * (12 // f) + 1)                # 12 px de folga na margem
+    core = _filt(ref, "min", 2 * (12 // f) + 1)                # miolo do rio
+    invented = _big(a & ~near, f, art.shape) & art
+    land = _big(_filt(_filt(_small(~art, f), "min", 3), "max", 3) & core, f, art.shape) & ~art
+    return invented, land
+
+
+def grow_mask(bad: np.ndarray, r: int = 32, f: int = 8) -> np.ndarray:
+    return _big(_filt(_small(bad, f), "max", 2 * (r // f) + 1), f, bad.shape)
+
+
+NO_WATER = (" There is no river, lake, pond or canal in this part of the view: draw the streets, yards, trees and"
+            " roofs that are there.")
+ONLY_WATER = " This part of the view is open river water: draw only water with small ripples, no land, no buildings."
+
+
+def repair(model, render, img, prompt: str, g: dict, style: dict, seed: int, tries: int = 2, log=print):
+    """Redesenha só os pedaços com água inventada ou terra no rio (o resto fica fixo por pinning)."""
+    W, H = img.size
+    for t in range(tries):
+        invented, land = water_errors(img, render)
+        if invented.mean() + land.mean() < 0.001:
+            break
+        log(f"  conserto {t + 1}: água inventada {invented.mean():.1%}, terra no rio {land.mean():.1%}")
+        for bad, hint in ((invented, NO_WATER), (land, ONLY_WATER)):
+            if bad.mean() < 0.0005:
+                continue
+            grow = grow_mask(bad)
+            T = 2048
+            for ty in range(0, H, T):
+                for tx in range(0, W, T):
+                    sub = grow[ty:ty + T, tx:tx + T]
+                    if sub.mean() < 0.002:
+                        continue
+                    ys, xs = np.nonzero(sub)
+                    x0, x1 = tx + xs.min() - 512, tx + xs.max() + 512
+                    y0, y1 = ty + ys.min() - 512, ty + ys.max() + 512
+                    w = max(g["window_px"], (x1 - x0 + 15) // 16 * 16)
+                    h = max(g["window_px"], (y1 - y0 + 15) // 16 * 16)
+                    x0 = int(min(max(0, x0), W - w)) // 16 * 16
+                    y0 = int(min(max(0, y0), H - h)) // 16 * 16
+                    w, h = min(w, W - x0) // 16 * 16, min(h, H - y0) // 16 * 16
+                    box = (x0, y0, x0 + w, y0 + h)
+                    fixed = model.joint(render.crop(box), prompt + hint, pinned=img.crop(box),
+                                        pin_mask=~grow[y0:y0 + h, x0:x0 + w], steps=g["steps"],
+                                        true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
+                                        window=g["window_px"], stride=g["stride_px"],
+                                        seed=seed + 7919 * (t + 1) + x0 + y0, log=lambda *_: None)
+                    img.paste(fixed, (x0, y0))
+    return img
+
+
 def _claim(lock: Path) -> bool:
     try:
         fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -52,7 +137,9 @@ def _claim(lock: Path) -> bool:
         return False
 
 
-def worker(run: Run, model, only: list[str] | None = None) -> None:
+def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int] | None = None) -> None:
+    """shard=(i, n): o worker i pega só os blocos i, i+n, ... de cada fase. Na Modal o lock por arquivo
+    não é atômico entre containers (dois workers pegaram o mesmo bloco), então lá a divisão é fixa."""
     g = run.region["generate"]
     style = run.region["style"]
     W, H = run.view["canvas_px"]
@@ -62,9 +149,9 @@ def worker(run: Run, model, only: list[str] | None = None) -> None:
     all_blocks = [b for b in blocks(run) if not only or b["id"] in only]
     for phase in range(4):
         mine = [b for b in all_blocks if b["phase"] == phase]
-        for b in mine:
+        for b in (mine[shard[0]::shard[1]] if shard else mine):
             done, lock = state / f"{b['id']}.done", state / f"{b['id']}.lock"
-            if done.exists() or not _claim(lock):
+            if done.exists() or (shard is None and not _claim(lock)):
                 continue
             t0 = time.time()
             x0, y0, x1, y1 = b["box"]
@@ -92,6 +179,8 @@ def worker(run: Run, model, only: list[str] | None = None) -> None:
             img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
                               steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
                               window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
+            if g.get("repair", True):
+                img = repair(model, render, img, style["prompt"], g, style, g["seed"] + b["bx"] * 1000 + b["by"])
             core_img = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
             # pad partial edge blocks to whole shots before writing
             if core_img.width % s or core_img.height % s:

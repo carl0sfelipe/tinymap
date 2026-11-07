@@ -25,6 +25,7 @@ cameraWorld(view).decompose(camera.position, camera.quaternion, camera.scale);
 
 let stableSince = 0;
 let frames = 0;
+let texBusy = 0; // texturas do satélite carregando
 window.TILES_LOADED = false;
 
 // Move the frustum to shot (col,row) of the canvas, or to a free box (overview / probe).
@@ -54,18 +55,35 @@ if (useOsm) {
   // satélite projetado no chão e nos telhados, quando existir (tinymap satellite)
   let sat = null;
   const sr = await fetch("/sat.json");
-  if (sr.ok) {
-    const meta = await sr.json();
-    const loader = new TextureLoader();
-    const textures = await Promise.all(meta.chunks.map(async (c) => {
-      const t = await loader.loadAsync(`/sat/${c.file}`);
-      t.colorSpace = SRGBColorSpace;
-      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      return t;
-    }));
-    sat = { meta, textures };
+  if (sr.ok) sat = { meta: await sr.json(), textures: [] };
+  const built = buildOsmScene(view, data, sat);
+  const { group, lights } = built;
+  if (sat) {
+    // Só os pedaços de satélite que o shot enxerga ficam na GPU (a região toda tem ~150 de 4096 px).
+    const loader = new TextureLoader(), cache = new Map(), MAX = 8;
+    window.useChunks = async (idx) => {
+      texBusy++;
+      try {
+        await Promise.all(idx.map(async (k) => {
+          if (cache.has(k)) { const t = cache.get(k); cache.delete(k); cache.set(k, t); return; }
+          const t = await loader.loadAsync(`/sat/${sat.meta.chunks[k].file}`);
+          t.colorSpace = SRGBColorSpace;
+          t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+          cache.set(k, t);
+        }));
+        while (cache.size > MAX) {
+          const [k, t] = cache.entries().next().value;
+          if (idx.includes(k)) break;
+          cache.delete(k); t.dispose();
+        }
+        built.chunkMats.forEach((m, k) => {
+          const on = idx.includes(k) && cache.has(k);
+          m.map = on ? cache.get(k) : null; m.needsUpdate = true;
+          for (const me of built.chunkMeshes[k]) me.visible = on;
+        });
+      } finally { texBusy--; }
+    };
   }
-  const { group, lights } = buildOsmScene(view, data, sat);
   scene.add(group, ...lights);
   renderer.setClearColor(GROUND); // o que sobrar fora do chão é terra, nunca céu/água
 } else {
@@ -100,7 +118,7 @@ function animate() {
   tiles?.update();
   renderer.render(scene, camera);
   frames++;
-  const busy = tiles ? tiles.stats.downloading + tiles.stats.parsing + (tiles.stats.queued ?? 0) : 0;
+  const busy = (tiles ? tiles.stats.downloading + tiles.stats.parsing + (tiles.stats.queued ?? 0) : 0) + texBusy;
   if (busy === 0 && frames > 60) {
     stableSince ||= performance.now();
     window.TILES_LOADED = performance.now() - stableSince > 2000;

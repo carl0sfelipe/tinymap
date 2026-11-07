@@ -28,7 +28,7 @@ camera:
   # Altura elipsoidal do chão no centro. Foz fica ~170-200 m acima do mar e a ondulação
   # do geoide aqui é pequena. Confira com `tinymap probe` e ajuste se o mapa "deslizar".
   target_height_m: 185
-  meters_per_px: 0.293   # 0.4 corta o custo pela metade com casas ainda legíveis
+  meters_per_px: 0.4     # era 0.293 (o piloto ficou nele); 0.4 corta o custo pela metade com casas ainda legíveis
   shot_px: 2048
 
 # Altura elipsoidal da lâmina d'água dos rios Paraná e Iguaçu (projeção da máscara OSM).

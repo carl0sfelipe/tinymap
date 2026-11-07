@@ -65,7 +65,32 @@ async function newPage() {
   return page;
 }
 
+// Pedaços do satélite que cada shot enxerga: cantos de cada pedaço projetados no canvas, com folga
+// de 512 px (prédios altos inclinam a imagem para cima).
+const satMeta = existsSync(`${run}/osm/sat.json`) && view.source === "osm" ? JSON.parse(readFileSync(`${run}/osm/sat.json`)) : null;
+const chunkBoxes = satMeta ? (() => {
+  const toPx = projector(view), n = 2 ** satMeta.z;
+  const ll = (x, y) => {
+    const X = (x + satMeta.x0 * 256) / (n * 256), Y = (y + satMeta.y0 * 256) / (n * 256);
+    return [Math.atan(Math.sinh(Math.PI * (1 - 2 * Y))) * 180 / Math.PI, X * 360 - 180];
+  };
+  return satMeta.chunks.map((c) => {
+    const pts = [[c.px, c.py], [c.px + c.w, c.py], [c.px, c.py + c.h], [c.px + c.w, c.py + c.h]]
+      .map(([x, y]) => toPx(...ll(x, y), view.target_height_m));
+    return [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])),
+      Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+  });
+})() : null;
+function chunksFor(spec) {
+  const s = view.shot_px;
+  const [x0, y0, size] = spec.box ?? [spec.col * s, spec.row * s, s];
+  const P = 512;
+  return chunkBoxes.map((b, k) => (b[0] < x0 + size + P && b[2] > x0 - P && b[1] < y0 + size + P && b[3] > y0 - P ? k : -1))
+    .filter((k) => k >= 0);
+}
+
 async function shoot(page, spec, file) {
+  if (chunkBoxes) await page.evaluate((idx) => window.useChunks(idx), chunksFor(spec));
   await page.evaluate((s) => window.setShot(s), spec);
   await page.waitForFunction(() => window.TILES_LOADED === true, null, { timeout: 600_000, polling: 500 });
   const url = await page.evaluate(() => window.capture());

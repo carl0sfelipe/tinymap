@@ -115,8 +115,10 @@ def upload(region: str = "regions/triplice-fronteira.yaml", loras: str = "loras"
 
 
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=24 * 3600)
-def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = False):
+def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = False, over: dict | None = None,
+           n_workers: int = 0):
     run = _setup(region, pilot)
+    run.region["generate"].update(over or {})  # --block/--margin/--steps do entrypoint
     lora = str(run.dir / "loras" / lora_name) if lora_name else None
     print(f"worker {worker_id} começando")
     model = _model(lora)
@@ -148,14 +150,17 @@ def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = Fal
 
     G._claim, R.Canvas.write = claim, write
     G.time.sleep = sleep
-    gen_worker(run, model)
+    gen_worker(run, model, shard=(worker_id, n_workers) if n_workers else None)
     runs.commit()
 
 
 @app.local_entrypoint()
-def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gpus: int = 2, pilot: bool = False):
+def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gpus: int = 2, pilot: bool = False,
+             block: int = 0, margin: int = 0, steps: int = 0):
+    """--block/--margin/--steps sobrescrevem o YAML (block_px precisa ser múltiplo de shot_px)."""
     name = Path(lora).name if lora else None
-    calls = [worker.spawn(region, name, i, pilot) for i in range(gpus)]
+    over = {k: v for k, v in (("block_px", block), ("margin_px", margin), ("steps", steps)) if v}
+    calls = [worker.spawn(region, name, i, pilot, over, gpus) for i in range(gpus)]
     print(f"{gpus} workers em {GPU} disparados; acompanhe no painel da Modal")
     for c in calls:
         c.get()

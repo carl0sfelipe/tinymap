@@ -103,13 +103,10 @@ def google_satellite(run: Run, bbox: dict, z: int = 19, pad: float = 0.005) -> P
 
     from concurrent.futures import ThreadPoolExecutor
     todo = [(tx, ty) for ty in range(rows) for tx in range(cols)]
-    with ThreadPoolExecutor(16) as ex:  # ~1,3 tile/s em série; 16 em paralelo
+    with ThreadPoolExecutor(32) as ex:  # ~1,3 tile/s em série; 32 em paralelo
         for i, _ in enumerate(ex.map(get, todo), 1):
             if i % 200 == 0:
                 print(f"  {i}/{len(todo)} tiles", flush=True)
-    mosaic = Image.new("RGB", (cols * 256, rows * 256))
-    for tx, ty in todo:
-        mosaic.paste(Image.open(cache / f"{z}_{x0 + tx}_{y0 + ty}.jpg").convert("RGB"), (tx * 256, ty * 256))
     # atribuição (obrigatória nos termos do Google)
     vp = f"https://tile.googleapis.com/tile/v1/viewport?session={session}&key={key}&zoom={z}&north={n}&south={s}&east={e}&west={w}"
     try:
@@ -117,27 +114,46 @@ def google_satellite(run: Run, bbox: dict, z: int = 19, pad: float = 0.005) -> P
             copyright = json.load(r).get("copyright", "")
     except Exception:  # noqa: BLE001
         copyright = "Google"
-    return save_mosaic(run, mosaic, z, x0, y0, "google", copyright)
+    return save_chunks(run, cache, z, x0, y0, cols, rows, "google", copyright)
 
 
 CHUNK = 4096  # textura WebGL segura; a maquete usa um pedaço por textura
 
 
-def save_mosaic(run: Run, mosaic: Image.Image, z: int, x0: int, y0: int, provider: str, copyright: str) -> Path:
-    """Grava a mosaica em pedaços de 4096 px (osm/sat_r{i}_c{j}.jpg) + osm/sat.json."""
+def tone(img: Image.Image) -> Image.Image:
+    """Clareia as sombras do satélite (mata e beirais quase pretos o modelo lia como água) e
+    devolve um pouco de cor. Curva: gama 0,75 + leve saturação."""
+    from PIL import ImageEnhance
+    lut = [round(255 * (i / 255) ** 0.75) for i in range(256)]
+    return ImageEnhance.Color(img.point(lut * 3)).enhance(1.15)
+
+
+def save_chunks(run: Run, cache: Path, z: int, x0: int, y0: int, cols: int, rows: int, provider: str,
+                copyright: str) -> Path:
+    """Monta os pedaços de 4096 px (osm/sat_r{i}_c{j}.jpg) direto dos tiles, sem a mosaica inteira
+    na memória (a região toda em z19 tem 37 mil x 58 mil px), + osm/sat.json e uma prévia."""
+    per = CHUNK // 256
+    W, H = cols * 256, rows * 256
     chunks = []
-    for i in range(0, mosaic.height, CHUNK):
-        for j in range(0, mosaic.width, CHUNK):
-            part = mosaic.crop((j, i, min(j + CHUNK, mosaic.width), min(i + CHUNK, mosaic.height)))
-            name = f"sat_r{i // CHUNK}_c{j // CHUNK}.jpg"
+    prev = Image.new("RGB", (cols * 32, rows * 32))
+    for i in range(0, rows, per):
+        for j in range(0, cols, per):
+            tw, th = min(per, cols - j), min(per, rows - i)
+            part = Image.new("RGB", (tw * 256, th * 256))
+            for ty in range(th):
+                for tx in range(tw):
+                    t = Image.open(cache / f"{z}_{x0 + j + tx}_{y0 + i + ty}.jpg").convert("RGB")
+                    part.paste(t, (tx * 256, ty * 256))
+            part = tone(part)
+            name = f"sat_r{i // per}_c{j // per}.jpg"
             part.save(run.path("osm", name), quality=92)
-            chunks.append({"file": name, "px": j, "py": i, "w": part.width, "h": part.height})
-    meta = {"z": z, "x0": x0, "y0": y0, "w": mosaic.width, "h": mosaic.height, "chunks": chunks,
-            "provider": provider, "copyright": copyright}
+            prev.paste(part.resize((tw * 32, th * 32)), (j * 32, i * 32))
+            chunks.append({"file": name, "px": j * 256, "py": i * 256, "w": part.width, "h": part.height})
+    meta = {"z": z, "x0": x0, "y0": y0, "w": W, "h": H, "chunks": chunks, "provider": provider, "copyright": copyright}
     out = run.path("osm", "sat.json")
     out.write_text(json.dumps(meta, indent=1))
-    mosaic.resize((mosaic.width // 8, mosaic.height // 8)).save(run.path("osm", "sat_preview.jpg"), quality=85)
-    print(f"satélite {mosaic.width} x {mosaic.height} px em {len(chunks)} pedaços; atribuição: {copyright}")
+    prev.save(run.path("osm", "sat_preview.jpg"), quality=85)
+    print(f"satélite {W} x {H} px em {len(chunks)} pedaços; atribuição: {copyright}")
     return out
 
 
@@ -150,3 +166,47 @@ def _env_key() -> str | None:
         if line.strip().startswith("GOOGLE_TILES_API_KEY="):
             return line.split("=", 1)[1].strip().strip("'\"") or None
     return None
+
+
+def overture_roads(bbox: dict) -> list[dict]:
+    """Ruas do Overture (transportation/segment) no formato de osm.fetch_scene."""
+    import duckdb
+
+    from .osm import LARGURA_VIA
+    c = duckdb.connect()
+    c.execute("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; SET s3_region='us-west-2';")
+    src = (f"read_parquet('s3://overturemaps-us-west-2/release/{OVERTURE_RELEASE}/theme=transportation/type=segment/*',"
+           " hive_partitioning=1)")
+    rows = c.execute(f"""SELECT ST_AsGeoJSON(geometry), subtype, class FROM {src}
+        WHERE bbox.xmin > ? AND bbox.xmax < ? AND bbox.ymin > ? AND bbox.ymax < ? AND subtype IN ('road', 'rail')""",
+                     [bbox["west"], bbox["east"], bbox["south"], bbox["north"]]).fetchall()
+    out = []
+    for gj, sub, cls in rows:
+        g = json.loads(gj)
+        if g["type"] != "LineString":
+            continue
+        line = [[lat, lon] for lon, lat in g["coordinates"]]
+        if sub == "rail":
+            out.append({"line": line, "w": 3, "kind": "rail"})
+        else:
+            out.append({"line": line, "w": LARGURA_VIA.get(cls or "", 5), "kind": "road",
+                        "major": cls in ("motorway", "trunk", "primary", "secondary")})
+    return out
+
+
+def overture_scene(run: Run, bbox: dict, water_ll: Path | None = None) -> Path:
+    """Maquete da região sem Overpass: prédios e ruas do Overture + água do OSM (osm/water_ll.json
+    de `tinymap osm`, que já cobre a região inteira)."""
+    pad = 0.003
+    box = {"south": bbox["south"] - pad, "west": bbox["west"] - pad, "north": bbox["north"] + pad, "east": bbox["east"] + pad}
+    t0 = time.time()
+    buildings = overture_buildings(box)
+    roads = overture_roads(box)
+    water = []
+    if water_ll and Path(water_ll).exists():
+        water = [{"rings": f["rings"], "holes": f.get("holes", [])} for f in json.loads(Path(water_ll).read_text())["features"]]
+    scene = {"bbox": bbox, "buildings": buildings, "roads": roads, "green": [], "water": water}
+    out = run.path("osm", "scene_ll.json")
+    out.write_text(json.dumps(scene))
+    print(f"maquete: {len(buildings)} prédios, {len(roads)} vias, {len(water)} águas ({time.time() - t0:.0f} s)")
+    return out
