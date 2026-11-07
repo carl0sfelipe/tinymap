@@ -14,6 +14,10 @@ SOFT_MAX = 0.31
 INVENTED_WATER_MAX = 0.003
 BLANK_MAX = 0.01
 EDGE_MIN = 0.12
+# Calibrados no piloto da maquete OSM (4 recortes, Qwen-Image-2.1): bons 0,00 / terra no rio 0,47-0,60;
+# diferença para o render: bons 36-43 / cópias 13-21. Revise com o primeiro lote.
+LOST_WATER_MAX = 0.10
+COPY_DIFF_MIN = 25.0
 
 
 def flat_share(img: Image.Image, tol: int = 6) -> float:
@@ -40,13 +44,31 @@ def blank_share(img: Image.Image) -> float:
     return float((np.asarray(big) > 127).mean())
 
 
-def invented_water(drawn: Image.Image, mask: Image.Image) -> float:
-    a = np.asarray(drawn.convert("RGB"), dtype=np.int16)
+def _wet(img: Image.Image) -> np.ndarray:
+    a = np.asarray(img.convert("RGB"), dtype=np.int16)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    wet = (b - r > 60) & (b - g > 15)
+    return (b - r > 60) & (b - g > 15)
+
+
+def invented_water(drawn: Image.Image, mask: Image.Image) -> float:
+    wet = _wet(drawn)
     blobs = Image.fromarray(wet.astype(np.uint8) * 255).filter(ImageFilter.MinFilter(9)).filter(ImageFilter.MaxFilter(9))
     near = np.asarray(mask.filter(ImageFilter.MaxFilter(25))) > 127
     return float(((np.asarray(blobs) > 127) & ~near).mean())
+
+
+def lost_water(drawn: Image.Image, mask: Image.Image) -> float:
+    """Share of the river (OSM mask, 12 px inside its edge) that was drawn as something else: land or a
+    city invented on the water, the base model's favourite mistake on big flat water."""
+    core = np.asarray(mask.filter(ImageFilter.MinFilter(25))) > 127
+    return float((~_wet(drawn) & core).sum() / core.sum()) if core.any() else 0.0
+
+
+def render_diff(drawn: Image.Image, render: Image.Image) -> float:
+    """Mean colour distance at 128 px. Low = the render was copied (a flat maquete passes `flat`)."""
+    a = np.asarray(drawn.convert("RGB").resize((128, 128), Image.BOX), np.float32)
+    b = np.asarray(render.convert("RGB").resize((128, 128), Image.BOX), np.float32)
+    return float(np.abs(a - b).mean())
 
 
 def edge_agreement(drawn: Image.Image, render: Image.Image) -> float:
@@ -65,11 +87,15 @@ def check(drawn: Image.Image, render: Image.Image, water_mask: Image.Image) -> t
         "water": invented_water(drawn, water_mask),
         "blank": blank_share(drawn) - blank_share(render),
         "edges": edge_agreement(drawn, render),
+        "lost": lost_water(drawn, water_mask),
+        "diff": render_diff(drawn, render),
     }
     fails = [name for name, bad in (
         ("photo-copy", m["flat"] < FLAT_MIN or m["soft"] > SOFT_MAX),
         ("invented-water", m["water"] > INVENTED_WATER_MAX),
         ("blank-area", m["blank"] > BLANK_MAX),
         ("geometry-drift", m["edges"] < EDGE_MIN),
+        ("land-on-water", m["lost"] > LOST_WATER_MAX),
+        ("render-copy", m["diff"] < COPY_DIFF_MIN),
     ) if bad]
     return fails, m
