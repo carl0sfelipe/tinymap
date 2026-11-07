@@ -1,0 +1,83 @@
+# Belo Horizonte (MG). Nenhum tiny map isométrico de BH encontrado (nov/2026): o diretório
+# Isocities tem só Juiz de Fora em Minas. Ver docs/BELO-HORIZONTE.md.
+name: belo-horizonte
+title: Tiny BH
+
+# Capital grande: o Google costuma ter a malha 3D fotorrealista. É o caminho dos mapas virais
+# (render direto da malha, sem maquete). Confirme com `tinymap probe` antes do render inteiro;
+# se algum bairro vier derretido ou chapado, troque para `source: osm` com `buildings: overture`
+# e `imagery: google`, como na Tríplice Fronteira.
+source: google
+
+# Centro da câmera: Praça Sete de Setembro (marco zero do hipercentro).
+center: { lat: -19.9191, lon: -43.9386 }
+
+# Fase 1: o centro planejado de Aarão Reis, dentro da Avenida do Contorno, mais a Savassi, Lourdes,
+# Funcionários, Santa Efigênia e o começo da Serra. ~5,0 x 4,7 km ≈ 24 km².
+# Fase 2 (região própria depois): Pampulha (Lagoa, Igreja São Francisco, Mineirão), ~7 km ao norte.
+bbox: { south: -19.952, west: -43.962, north: -19.907, east: -43.914 }
+
+# Piloto: Praça Sete, Mercado Central, Edifício JK e Praça da Liberdade (~1,7 x 1,9 km).
+pilot_bbox: { south: -19.934, west: -43.946, north: -19.917, east: -43.930 }
+
+camera:
+  azimuth_deg: -15       # mesmo ângulo de isometric.nyc / tiny.london
+  elevation_deg: -45
+  # Altura ELIPSOIDAL do chão no centro: Praça Sete fica a ~850 m do mar e a ondulação do geoide
+  # em BH é de uns -6 m, então ~845 m. BH é morro: o terreno vai de ~800 m (Arrudas) a ~1.100 m
+  # (início da Serra do Curral) dentro da área. Isso não estraga o render (a malha tem o relevo),
+  # mas os pontos de referência e a máscara de água usam esta altura: confira com `tinymap probe`.
+  target_height_m: 845
+  # Centro denso e vertical: 0,3 m/px deixa janela e sacada legíveis (o tiny.london usa 0,293).
+  # 24 km² a 0,3 m/px dá ~0,4 gigapixel de canvas, uma noite de 3090.
+  meters_per_px: 0.3
+  shot_px: 2048
+
+# Altura elipsoidal da água (Ribeirão Arrudas canalizado; a Lagoa da Pampulha fica na fase 2,
+# a ~795 m elipsoidais).
+water_height_m: 815
+
+# Pontos que sempre entram no conjunto de treino. Coordenadas aproximadas: `tinymap osm` traz as
+# exatas do OpenStreetMap em osm/places_px.json, confira antes do `lab-freeze`.
+landmarks:
+  - { name: "Praça Sete de Setembro", lat: -19.9191, lon: -43.9386 }
+  - { name: "Praça da Liberdade", lat: -19.9318, lon: -43.9378 }
+  - { name: "Mercado Central", lat: -19.9227, lon: -43.9437 }
+  - { name: "Edifício JK", lat: -19.9278, lon: -43.9433 }
+  - { name: "Parque Municipal", lat: -19.9234, lon: -43.9339 }
+  - { name: "Viaduto Santa Tereza", lat: -19.9165, lon: -43.9341 }
+  - { name: "Praça da Estação", lat: -19.9168, lon: -43.9348 }
+  - { name: "Savassi (Praça Diogo de Vasconcelos)", lat: -19.9375, lon: -43.9339 }
+  - { name: "Igreja de Lourdes", lat: -19.9319, lon: -43.9456 }
+  - { name: "Palácio das Artes", lat: -19.9246, lon: -43.9354 }
+
+style:
+  # O prompt diz COMO desenhar, não O QUE desenhar (lição do tiny.london). Com malha do Google não
+  # há rio pintado de azul: o Arrudas é um canal estreito, e o maior risco é a IA inventar piscinas
+  # e lagos nos topos de prédio (caixas d'água, coberturas azuis).
+  prompt: >-
+    Redraw this 3D city render as clean isometric pixel art, like a 1990s city-builder tile map
+    (SimCity 2000, Transport Tycoon). Pixel art only: every edge is a hard 1-pixel step, flat fills
+    from a small palette of about 32 colours, a dark 1-pixel outline around every roof and wall,
+    simple dithered shading, rows of tiny pixel windows on tall buildings, small pixel trees. Keep the
+    layout identical: every building, street, square, tree and canal stays exactly where it is, with
+    the same footprint and height. No photographic texture, no painterly brush strokes, no blur, no
+    soft gradients, no text.
+  negative: "photo, photographic texture, blurry, noise, ponds, lakes, swimming pools, flooded streets, text, watermark, labels"
+  # Professor dos pares de treino. Qwen-Image-2.1 só serve para uso não comercial; para comercial,
+  # Qwen/Qwen-Image-Edit-2511 (Apache-2.0).
+  teacher_model: Qwen/Qwen-Image-Edit-2511
+
+generate:
+  window_px: 1024
+  stride_px: 768
+  block_px: 6144     # 24 GB: confortável na 3090
+  margin_px: 1024    # contexto dos vizinhos já pintados (pinning)
+  free_band_px: 64   # faixa livre na borda do já pintado (Pixel Singapore)
+  steps: 16
+  true_cfg: 2.5
+  seed: 3110         # (31) BH
+
+# Sem pontes com dado ao vivo por enquanto. Candidatos a camada ao vivo: BHTrans (ônibus),
+# metrô, Mineirão em dia de jogo (fase 2).
+bridges: []
