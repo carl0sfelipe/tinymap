@@ -96,7 +96,9 @@ def upload(region: str = "regions/triplice-fronteira.yaml", loras: str = "loras"
     from tinymap import region as R
     geo.load(R.load(region, pilot=pilot))
     pares = [(str(p.relative_to(src)), p) for p in src.rglob("*")
-             if p.is_file() and p.relative_to(src).parts[0] in ("render", "osm")]
+             if p.is_file() and p.relative_to(src).parts[0] in ("render", "osm")
+             and not p.relative_to(src).parts[-1].startswith("sat")  # satélite já está no render
+             and "sat_tiles" not in p.relative_to(src).parts]
     pares += [(n, src / n) for n in ("view.json", "region.json", "geo_affine.json") if (src / n).exists()]
     # LoRAs vão junto, em runs/<nome>/loras/
     if Path(loras).exists():
@@ -163,7 +165,7 @@ def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gp
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=3600)
 def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None,
          pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "",
-         single: str = "") -> tuple[bytes, bytes]:
+         single: str = "", strength: float = 1.0) -> tuple[bytes, bytes]:
     import time
     from io import BytesIO
     run = _setup(region, pilot)
@@ -192,13 +194,15 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
         neg = style.get("negative") if true_cfg > 1 else None
         a = model.edit(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg, negative=neg)
         b = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
-                        negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"])
+                        negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"],
+                        strength=strength)
         img = Image.new("RGB", (2 * render.width, render.height))
         img.paste(a, (0, 0))
         img.paste(b, (render.width, 0))
     else:
         img = model.joint(render, prompt or style["prompt"], steps=steps, true_cfg=true_cfg,
-                      negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"])
+                          negative=style.get("negative"), window=g["window_px"], stride=g["stride_px"],
+                          strength=strength)
     print(f"{'edit+joint' if single else 'joint'}: {steps} passos, true_cfg {true_cfg}, {time.time() - t0:.0f} s")
     hf_cache.commit()
     out = []
@@ -212,10 +216,12 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
 @app.local_entrypoint()
 def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913",
              pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "", tag: str = "",
-             single: str = ""):
-    """steps/true_cfg/prompt sobrescrevem o YAML para comparar; tag entra no nome do arquivo."""
+             single: str = "", strength: float = 1.0):
+    """steps/true_cfg/prompt sobrescrevem o YAML para comparar; tag entra no nome do arquivo.
+    --strength 0.5 parte do render com ruído parcial (troca o estilo sem redesenhar a planta)."""
     lat, lon = map(float, at.split(",")) if at else (None, None)
-    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt, single)
+    r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt, single,
+                       strength)
     out = ROOT / "runs" / "modal_try"
     out.mkdir(parents=True, exist_ok=True)
     # no diagnóstico --single o render é só o recorte de 1024 px

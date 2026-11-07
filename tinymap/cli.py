@@ -5,6 +5,8 @@
   tinymap render   <region.yaml> [--workers 4]    Google Photorealistic 3D Tiles -> render shots
   tinymap osm      <region.yaml>                  water / places / borders from OpenStreetMap
   tinymap osm3d    <region.yaml> [--pilot]        maquete 3D do OSM (para source: osm)
+  tinymap overture <region.yaml> [--pilot]        prédios do Overture (OSM + Google + Microsoft) na maquete
+  tinymap satellite <region.yaml> [--pilot]       satélite do Google (Map Tiles API) no chão e nos telhados
   tinymap stitch   <region.yaml> [--scale 0.125]  small preview of render (or --art) for checking
   tinymap teacher  <region.yaml> --backend qwen|gemini|folder --out pairs_v1 [--n 120] [--lora ...]
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
@@ -32,6 +34,23 @@ from . import region as R
 def _model(a):
     from .models import ModelCfg, QwenEdit
     return QwenEdit(ModelCfg(model_id=a.model, lora=a.lora, lora_scale=a.lora_scale, quant=a.quant, device=f"cuda:{a.gpu}"))
+
+
+def _box(run, pilot: bool) -> dict:
+    return run.region["pilot_bbox"] if pilot and run.region.get("pilot_bbox") else run.region["bbox"]
+
+
+def _overture(run, pilot: bool) -> None:
+    """Troca os prédios de osm/scene_ll.json pelos do Overture (que já incluem os do OSM)."""
+    from .sources import overture_buildings
+    b, pad = _box(run, pilot), 0.003
+    p = run.path("osm", "scene_ll.json")
+    scene = json.loads(p.read_text())
+    old = len(scene["buildings"])
+    scene["buildings"] = overture_buildings({"south": b["south"] - pad, "west": b["west"] - pad,
+                                             "north": b["north"] + pad, "east": b["east"] + pad})
+    p.write_text(json.dumps(scene))
+    print(f"prédios: {old} (OSM) -> {len(scene['buildings'])} (Overture)")
 
 
 def main() -> None:
@@ -82,6 +101,13 @@ def main() -> None:
     elif a.cmd == "osm3d":
         from .osm import fetch_scene
         fetch_scene(run, pilot=a.pilot)
+        if run.region.get("buildings") == "overture":
+            _overture(run, a.pilot)
+    elif a.cmd == "overture":
+        _overture(run, a.pilot)
+    elif a.cmd == "satellite":
+        from .sources import google_satellite
+        google_satellite(run, _box(run, a.pilot))
     elif a.cmd == "stitch":
         from PIL import Image
         v = run.view

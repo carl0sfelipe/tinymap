@@ -112,7 +112,9 @@ class QwenEdit:
     def joint(self, render: Image.Image, prompt: str, *, pinned: Image.Image | None = None,
               pin_mask: np.ndarray | None = None, steps: int = 20, true_cfg: float = 1.0,
               negative: str | None = None, window: int = 1024, stride: int = 768, seed: int = 0,
-              log=print) -> Image.Image:
+              strength: float = 1.0, log=print) -> Image.Image:
+        """strength < 1: parte do próprio render com ruído parcial (SDEdit) em vez de ruído puro.
+        Com 0,4-0,6 o modelo troca a aparência mas não consegue mudar a planta (prédios, ruas, rio)."""
         from diffusers.pipelines.qwenimage.pipeline_qwenimage_edit_plus import calculate_shift, retrieve_timesteps
 
         p, dev, f = self.p, self.dev, self.vsf
@@ -158,14 +160,26 @@ class QwenEdit:
                              p.scheduler.config.get("max_image_seq_len", 4096),
                              p.scheduler.config.get("base_shift", 0.5), p.scheduler.config.get("max_shift", 1.15))
         timesteps, _ = retrieve_timesteps(p.scheduler, steps, dev, sigmas=sigmas, mu=mu)
-        p.scheduler.set_begin_index(0)
         g = torch.Generator(dev).manual_seed(seed)
         noise = torch.randn((1, self.C, lh, lw), generator=g, device=dev, dtype=torch.float32)
         z = noise.clone()
+        k0 = 0
+        if strength < 1:
+            sig = p.scheduler.sigmas
+            k0 = next((k for k in range(len(timesteps)) if float(sig[k]) <= strength), len(timesteps) - 1)
+            xr = torch.zeros((1, self.C, lh, lw), device=dev)
+            for (x, y) in grid(0):
+                xr[:, :, y // f:y // f + lwin, x // f:x // f + lwin] = self._encode(render.crop((x, y, x + window, y + window))).float()
+            s0 = float(sig[k0])
+            z = s0 * noise + (1 - s0) * xr  # ponto da trajetória flow-matching no nível de ruído s0
+            log(f"  strength {strength}: começando no passo {k0 + 1}/{steps} (sigma {s0:.2f})")
+        p.scheduler.set_begin_index(k0)
         shapes = [[(1, lwin // 2, lwin // 2), (1, lwin // 2, lwin // 2)]]
         tr = p.transformer
 
         for k, t in enumerate(timesteps):
+            if k < k0:
+                continue
             acc = torch.zeros_like(z)
             wsum = torch.zeros((1, 1, lh, lw), device=dev)
             for (x, y) in grids[k % 2]:

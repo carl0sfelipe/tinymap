@@ -5,7 +5,7 @@ import { TilesRenderer } from "3d-tiles-renderer";
 import {
   GoogleCloudAuthPlugin, CesiumIonAuthPlugin, GLTFExtensionsPlugin, TileCompressionPlugin,
 } from "3d-tiles-renderer/plugins";
-import { Scene, WebGLRenderer, OrthographicCamera } from "three";
+import { Scene, WebGLRenderer, OrthographicCamera, TextureLoader, SRGBColorSpace } from "three";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { cameraWorld } from "./camera.mjs";
 import { buildOsmScene, GROUND } from "./osmscene.mjs";
@@ -22,6 +22,10 @@ document.body.appendChild(renderer.domElement);
 const scene = new Scene();
 const camera = new OrthographicCamera(-1, 1, 1, -1, 1, 20000);
 cameraWorld(view).decompose(camera.position, camera.quaternion, camera.scale);
+
+let stableSince = 0;
+let frames = 0;
+window.TILES_LOADED = false;
 
 // Move the frustum to shot (col,row) of the canvas, or to a free box (overview / probe).
 window.setShot = ({ col, row, box }) => {
@@ -47,7 +51,21 @@ const useOsm = view.source === "osm";
 let tiles = null;
 if (useOsm) {
   const data = await (await fetch("/scene.json")).json();
-  const { group, lights } = buildOsmScene(view, data);
+  // satélite projetado no chão e nos telhados, quando existir (tinymap satellite)
+  let sat = null;
+  const sr = await fetch("/sat.json");
+  if (sr.ok) {
+    const meta = await sr.json();
+    const loader = new TextureLoader();
+    const textures = await Promise.all(meta.chunks.map(async (c) => {
+      const t = await loader.loadAsync(`/sat/${c.file}`);
+      t.colorSpace = SRGBColorSpace;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return t;
+    }));
+    sat = { meta, textures };
+  }
+  const { group, lights } = buildOsmScene(view, data, sat);
   scene.add(group, ...lights);
   renderer.setClearColor(GROUND); // o que sobrar fora do chão é terra, nunca céu/água
 } else {
@@ -77,9 +95,6 @@ if (tiles) {
   scene.add(tiles.group);
 }
 
-window.TILES_LOADED = false;
-let stableSince = 0;
-let frames = 0;
 function animate() {
   requestAnimationFrame(animate);
   tiles?.update();
@@ -97,3 +112,4 @@ function animate() {
 window.setShot({ col: 0, row: 0 });
 animate();
 window.capture = () => renderer.domElement.toDataURL("image/png");
+window.SCENE_READY = true; // cena (e texturas do satélite) carregada

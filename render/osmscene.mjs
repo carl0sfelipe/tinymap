@@ -8,7 +8,7 @@
 //
 // Usado no navegador (main.js, view.source = "osm") e no Node (teste).
 import {
-  BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial, Color, ShapeUtils,
+  BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial, MeshBasicMaterial, Color, ShapeUtils,
   Vector2, Vector3, Matrix4, MathUtils, DirectionalLight, AmbientLight,
 } from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
@@ -30,7 +30,23 @@ function hash(s) {
 
 export const GROUND = COL.ground;
 
-export function buildOsmScene(view, data) {
+// Satélite (osm/sat.json + pedaços de 4096 px): lat/lon -> pixel da mosaica Web Mercator.
+function satProj(sat) {
+  const n = 2 ** sat.meta.z, ox = sat.meta.x0 * 256, oy = sat.meta.y0 * 256;
+  const toPx = (lat, lon) => {
+    const x = ((lon + 180) / 360) * n * 256 - ox;
+    const y = ((1 - Math.asinh(Math.tan(lat * D2R)) / Math.PI) / 2) * n * 256 - oy;
+    return [x, y];
+  };
+  const toLL = (x, y) => {
+    const X = (x + ox) / (n * 256), Y = (y + oy) / (n * 256);
+    return [Math.atan(Math.sinh(Math.PI * (1 - 2 * Y))) / D2R, X * 360 - 180];
+  };
+  const chunkAt = (x, y) => sat.meta.chunks.findIndex((c) => x >= c.px && x < c.px + c.w && y >= c.py && y < c.py + c.h);
+  return { toPx, toLL, chunkAt };
+}
+
+export function buildOsmScene(view, data, sat = null) {
   const ground = view.target_height_m;
   const enu = new Matrix4();
   WGS84_ELLIPSOID.getEastNorthUpFrame(view.lat * D2R, view.lon * D2R, ground, enu);
@@ -44,6 +60,8 @@ export function buildOsmScene(view, data) {
   };
 
   const buckets = new Map(); // cor -> [geometria]
+  const sp = sat ? satProj(sat) : null;
+  const satRoofs = sat ? sat.meta.chunks.map(() => ({ pos: [], uv: [] })) : null;
   const push = (color, geom) => {
     if (!buckets.has(color)) buckets.set(color, []);
     buckets.get(color).push(geom);
@@ -110,6 +128,21 @@ export function buildOsmScene(view, data) {
       gw.computeVertexNormals();
       push(wall, gw);
       const tris = ShapeUtils.triangulateShape(pts.map(([x, y]) => new Vector2(x, y)), []);
+      if (sp) {
+        // telhado com a foto do satélite no mesmo lugar (pedaço escolhido pelo centro do prédio)
+        const ll = ring.slice(0, -1), ord = area < 0 ? [...ll].reverse() : ll;
+        const pxs = ord.map(([la, lo]) => sp.toPx(la, lo));
+        const cx = pxs.reduce((a, p) => a + p[0], 0) / pxs.length, cy = pxs.reduce((a, p) => a + p[1], 0) / pxs.length;
+        const k = sp.chunkAt(cx, cy);
+        if (k >= 0) {
+          const c = sat.meta.chunks[k], R = satRoofs[k];
+          for (const t of tris) for (const i of t) {
+            R.pos.push(pts[i][0], pts[i][1], pts[i][2] + h);
+            R.uv.push((pxs[i][0] - c.px) / c.w, 1 - (pxs[i][1] - c.py) / c.h);
+          }
+          continue;
+        }
+      }
       const roofPos = [];
       for (const t of tris) for (const i of t) roofPos.push(pts[i][0], pts[i][1], pts[i][2] + h);
       if (roofPos.length) {
@@ -129,12 +162,43 @@ export function buildOsmScene(view, data) {
     const [s, w, n, e] = [s0 - pad, w0 - pad, n0 + pad, e0 + pad];
     flat([[[s, w], [s, e], [n, e], [n, w], [s, w]]], [], -0.3, COL.ground);
   }
-  for (const f of data.green ?? []) flat(f.rings, f.holes, -0.2, COL[f.kind] ?? COL.green);
-  for (const f of data.water ?? []) flat(f.rings, f.holes, -0.1, COL.water);
-  for (const r of data.roads ?? []) strip(r.line, r.w, 0, r.major ? COL.major : r.kind === "rail" ? COL.rail : COL.road);
+  if (!sat) {
+    for (const f of data.green ?? []) flat(f.rings, f.holes, -0.2, COL[f.kind] ?? COL.green);
+    for (const f of data.water ?? []) flat(f.rings, f.holes, -0.1, COL.water);
+    for (const r of data.roads ?? []) strip(r.line, r.w, 0, r.major ? COL.major : r.kind === "rail" ? COL.rail : COL.road);
+  }
   for (const b of data.buildings ?? []) building(b);
 
   const group = new Group();
+  if (sat) {
+    // chão: uma malha 48x48 por pedaço da mosaica, com UV exato (Mercator não é linear em lat/lon)
+    const G = 48;
+    sat.meta.chunks.forEach((c, k) => {
+      const pos = [], uv = [], idx = [];
+      for (let iy = 0; iy <= G; iy++) for (let ix = 0; ix <= G; ix++) {
+        const x = c.px + (c.w * ix) / G, y = c.py + (c.h * iy) / G;
+        pos.push(...local(sp.toLL(x, y), -0.2));
+        uv.push(ix / G, 1 - iy / G);
+      }
+      for (let iy = 0; iy < G; iy++) for (let ix = 0; ix < G; ix++) {
+        const a = iy * (G + 1) + ix, b = a + 1, d = a + G + 1, e = d + 1;
+        idx.push(a, d, b, b, d, e);
+      }
+      const g = new BufferGeometry();
+      g.setAttribute("position", new Float32BufferAttribute(pos, 3));
+      g.setAttribute("uv", new Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      const mat = new MeshBasicMaterial({ map: sat.textures[k] });
+      group.add(new Mesh(g, mat));
+      const R = satRoofs[k];
+      if (R.pos.length) {
+        const gr = new BufferGeometry();
+        gr.setAttribute("position", new Float32BufferAttribute(R.pos, 3));
+        gr.setAttribute("uv", new Float32BufferAttribute(R.uv, 2));
+        group.add(new Mesh(gr, mat));
+      }
+    });
+  }
   for (const [color, geoms] of buckets) {
     for (let i = 0; i < geoms.length; i += 20000) {
       const merged = mergeGeometries(geoms.slice(i, i + 20000), false);

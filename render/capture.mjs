@@ -32,6 +32,20 @@ const server = await createServer({
         res.setHeader("Content-Type", "application/json");
         res.end(readFileSync(scenePath));
       });
+      // satélite (tinymap satellite): osm/sat.json e os pedaços osm/sat_r*_c*.jpg
+      srv.middlewares.use("/sat.json", (_req, res) => {
+        const p = `${run}/osm/sat.json`;
+        if (!existsSync(p)) { res.statusCode = 404; return res.end("{}"); }
+        res.setHeader("Content-Type", "application/json");
+        res.end(readFileSync(p));
+      });
+      srv.middlewares.use("/sat/", (req, res) => {
+        const name = (req.url || "").replace(/^\//, "").split("?")[0];
+        const p = `${run}/osm/${name}`;
+        if (!/^sat_r\d+_c\d+\.jpg$/.test(name) || !existsSync(p)) { res.statusCode = 404; return res.end(); }
+        res.setHeader("Content-Type", "image/jpeg");
+        res.end(readFileSync(p));
+      });
     },
   }],
 });
@@ -47,7 +61,7 @@ async function newPage() {
   page.on("pageerror", (e) => console.error("page error:", e.message));
   await page.addInitScript(([v, a]) => { window.VIEW = v; window.AUTH = a; }, [view, auth]);
   await page.goto(`http://localhost:${port}/`);
-  await page.waitForFunction(() => typeof window.setShot === "function", null, { timeout: 120_000 });
+  await page.waitForFunction(() => window.SCENE_READY === true, null, { timeout: 300_000 });
   return page;
 }
 
