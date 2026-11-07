@@ -177,29 +177,44 @@ def prepare(run: Run, out_dir: Path, n: int, seed: int = 0) -> list[dict]:
     return jobs
 
 
-def accept(run: Run, out_dir: Path) -> int:
-    """Check <id>_cand<k>.png from a batch teacher; the first that passes becomes <id>_art.png."""
+_WATER = {}
+
+
+def _accept_one(args) -> tuple[str, str, bool]:
+    run, out_dir, fr = args
+    if run.dir not in _WATER:  # um Water por processo
+        _WATER[run.dir] = Water(run)
+    fid, box = fr["id"], tuple(fr["box"])
+    size = box[2] - box[0]
+    render = Image.open(out_dir / f"{fid}_render.png").convert("RGB")
+    mask = _WATER[run.dir].mask(box)
+    line = f"{fid}: "
+    for cand in sorted(out_dir.glob(f"{fid}_cand*.png")):
+        small = Image.open(cand).convert("RGB").resize((FRAME, FRAME), Image.LANCZOS).resize((size, size), Image.LANCZOS)
+        fails, m = check(small, render, mask)
+        line += f"{cand.stem[len(fid) + 1:]} " + " ".join(f"{k}={v:.3f}" for k, v in m.items()) + (" FAIL " + ",".join(fails) if fails else " PASS") + "; "
+        if not fails:
+            small.save(out_dir / f"{fid}_art.png")
+            (out_dir / f"{fid}.done").write_text(line)
+            return fid, line, True
+    (out_dir / f"{fid}.done").write_text(line)
+    return fid, line, False
+
+
+def accept(run: Run, out_dir: Path, workers: int | None = None) -> int:
+    """Check <id>_cand<k>.png from a batch teacher; the first that passes becomes <id>_art.png.
+    Runs on every CPU core (the checks are ~10 s per frame of 4 candidates on one core)."""
+    from concurrent.futures import ProcessPoolExecutor
+
     frames = json.loads((out_dir / "frames.json").read_text())
-    water = Water(run)
-    report = open(out_dir / "report.txt", "a")
     kept = 0
-    for fr in frames:
-        fid, box = fr["id"], tuple(fr["box"])
-        size = box[2] - box[0]
-        render = Image.open(out_dir / f"{fid}_render.png").convert("RGB")
-        mask = water.mask(box)
-        line = f"{fid}: "
-        for cand in sorted(out_dir.glob(f"{fid}_cand*.png")):
-            small = Image.open(cand).convert("RGB").resize((FRAME, FRAME), Image.LANCZOS).resize((size, size), Image.LANCZOS)
-            fails, m = check(small, render, mask)
-            line += f"{cand.stem[len(fid) + 1:]} " + " ".join(f"{k}={v:.3f}" for k, v in m.items()) + (" FAIL " + ",".join(fails) if fails else " PASS") + "; "
-            if not fails:
-                small.save(out_dir / f"{fid}_art.png")
-                kept += 1
-                break
-        (out_dir / f"{fid}.done").write_text(line)
-        report.write(line + "\n")
-    report.close()
+    with ProcessPoolExecutor(workers or os.cpu_count()) as ex, open(out_dir / "report.txt", "w") as report:
+        for i, (fid, line, ok) in enumerate(ex.map(_accept_one, [(run, out_dir, fr) for fr in frames]), 1):
+            kept += ok
+            report.write(line + "\n")
+            report.flush()
+            if i % 20 == 0:
+                print(f"  checados {i}/{len(frames)}, {kept} aprovados", flush=True)
     print(f"{kept}/{len(frames)} pairs kept in {out_dir} (details in report.txt)")
     return kept
 
