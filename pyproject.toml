@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Isometric pixel-art city maps (tiny.london style) generated on your own GPUs"
 requires-python = ">=3.10"
 dependencies = [
-  "pyyaml", "numpy", "pillow", "pyvips",
+  "pyyaml", "numpy", "pillow", "pyvips", "scipy", "shapely",
   "torch>=2.4", "torchvision", "diffusers>=0.36", "transformers>=4.51", "accelerate", "peft>=0.17",
   "bitsandbytes>=0.45", "safetensors", "sentencepiece",
 ]

@@ -1258,7 +1258,7 @@ $("#b-cancel").onclick = () => { edit = null; lasso = null; editUI(); draw(); };
 async function applyEdit() {
   if (!edit) return true;
   if (edit.float) commitFloat();
-  const src = edit.result || edit.buf, note = edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "edição à mão";
+  const src = edit.result || edit.buf, note = edit.note || (edit.imported ? "importado" + (curPreset ? ` (${PRESET_LABEL[curPreset]})` : "") : "edição à mão");
   busy("aplicando no mapa…");
   try {
     const j = await api("/api/apply", { box: edit.box, png: editPNG(src), note });
@@ -1324,7 +1324,7 @@ $("#b-polsel").onclick = async () => {
   try {
     const j = await api("/api/polish", { box: sel, ops, k: $("#p-k").value ? +$("#p-k").value : null });
     const im = await loadImg(j.png), c = document.createElement("canvas"); c.width = im.width; c.height = im.height; c.getContext("2d").drawImage(im, 0, 0);
-    edit.result = c; $("#i-split").value = 50; ebUI();
+    edit.result = c; edit.note = "polimento: " + ops.map((o) => (o === "grid" ? "grade" : "paleta")).join(" + "); $("#i-split").value = 50; ebUI();
     const g = j.info.grade, a = j.info.antes, d = j.info.depois;
     $("#polinfo").innerHTML = `${g ? (g.k > 1 ? `pixel de <b>${g.k} px</b> encaixado · ` : "sem grade detectada · ") : ""}cores ${a.cores} → <b>${d.cores}</b> · mole ${Math.round(a.mole * 100)}% → <b>${Math.round(d.mole * 100)}%</b><br>Arraste a barra <b>antes ↔ depois</b> e use <b>Aplicar no mapa</b>.`;
   } catch (e) { alert("Erro ao polir: " + e.message); }

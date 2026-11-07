@@ -23,6 +23,19 @@ YAML da região
   └─ site ──── pirâmide Deep Zoom WebP + OpenSeadragon + busca + fronteiras
 ```
 
+## Experimente sem GPU: cidade demo e estúdio
+
+```bash
+tinymap demo                         # cidade sintética com os defeitos típicos da IA (runs/demo)
+tinymap edit regions/demo.yaml       # estúdio em http://127.0.0.1:8766 — aba "Mapa"
+```
+
+Na aba **Mapa**, "Procurar defeitos" dá a nota do mapa, e "Consertar e polir o mapa inteiro" roda
+tudo o que não precisa de IA: lagoas e terra no rio repintadas a partir da maquete, pixel encaixado
+na grade, paleta do mapa e emendas de cor entre blocos (a demo vai de 49 a 96). Também na linha de
+comando: `tinymap autofix --lakes` e `tinymap polish`. Tudo desfazível pelo histórico. Plano da
+plataforma em [docs/PLATAFORMA.md](docs/PLATAFORMA.md).
+
 ## Instalação
 
 ```bash
