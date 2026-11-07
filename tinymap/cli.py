@@ -12,6 +12,7 @@
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
+  tinymap autofix  <region.yaml> [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
   tinymap try      <region.yaml> --lora X.safetensors [--at lat,lon]   one block, to judge a LoRA
   tinymap generate <region.yaml> --lora X.safetensors [--gpu 0]       paint the map (one worker)
@@ -83,6 +84,7 @@ def main() -> None:
     ap.add_argument("--pinos")
     ap.add_argument("--precise", default="yes", choices=["yes", "no"])
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--undo", action="store_true", help="autofix: desfaz o último lote")
     ap.add_argument("--sat-only", action="store_true", help="render: só a foto do satélite (render_sat/)")
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args()
@@ -131,6 +133,13 @@ def main() -> None:
     elif a.cmd == "sheets":
         from .teacher import contact_sheet
         print(contact_sheet(run.dir / a.out))
+    elif a.cmd == "autofix":
+        from .autofix import run_all, undo_last
+        if a.undo:
+            undo_last(run, a.region)
+        else:
+            t = run_all(run, a.region, dry_run=a.dry_run)
+            print({k: v for k, v in t.items() if k != "ids"})
     elif a.cmd == "edit":
         from .mapedit import MapEdit, serve as serve_edit
         serve_edit(MapEdit(run, a.region), a.host, 8766 if a.port == 8765 else a.port)
