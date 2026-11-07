@@ -135,10 +135,11 @@ class MapEdit:
                 shot.paste(part, (sx0 - c * s, sy0 - r * s))  # sem máscara: copia o alfa também
                 p = self.art / f"r{r}_c{c}.png"
                 tmp = p.with_name(f".{p.name}")
+                # compress_level=1: ~5x mais rápido que o padrão (aplicar/desfazer levava 6-8 s)
                 if shot.getextrema()[3][0] == 255:  # opaco: salva RGB, como a geração
-                    shot.convert("RGB").save(tmp)
+                    shot.convert("RGB").save(tmp, compress_level=1)
                 else:
-                    shot.save(tmp)
+                    shot.save(tmp, compress_level=1)
                 tmp.replace(p)
                 touched.append((r, c))
         return touched
@@ -151,8 +152,8 @@ class MapEdit:
             hid = time.strftime("%Y%m%d-%H%M%S") + f"-{box[0]}-{box[1]}"
             d = self.hist / hid
             d.mkdir()
-            self.crop("art", box).save(d / "antes.png")
-            new.save(d / "depois.png")
+            self.crop("art", box).save(d / "antes.png", compress_level=1)
+            new.save(d / "depois.png", compress_level=1)
             (d / "meta.json").write_text(json.dumps({"box": box, "note": note, "t": time.time()}, ensure_ascii=False))
             touched = self._write(box, new)
         return {"id": hid, "shots": touched}
