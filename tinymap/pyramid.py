@@ -11,16 +11,39 @@ import shutil
 from .region import ROOT, Run
 
 
+BG = (14, 26, 34)  # fundo do viewer (site/index.html --bg)
+
+
+def _masked(run: Run):
+    """Arte recortada pelo polígono da área do mapa (view.area_px): fora dele o modelo pintava em cima
+    de chão vazio e inventava cidade e canais. Grava em art_site/ e devolve a pasta."""
+    from PIL import Image, ImageDraw
+    v = run.view
+    s = v["shot_px"]
+    out = run.dir / "art_site"
+    out.mkdir(exist_ok=True)
+    poly = [tuple(p) for p in v["area_px"]]
+    for p in sorted((run.dir / "art").glob("r*_c*.png")):
+        r, c = (int(x[1:]) for x in p.stem.split("_"))
+        im = Image.open(p).convert("RGB")
+        m = Image.new("L", im.size, 0)
+        ImageDraw.Draw(m).polygon([(x - c * s, y - r * s) for x, y in poly], fill=255)
+        bg = Image.new("RGB", im.size, BG)
+        Image.composite(im, bg, m).save(out / p.name)
+    return out
+
+
 def build(run: Run, version: str = "v1", quality: int = 90) -> None:
     import pyvips
 
     v = run.view
     s = v["shot_px"]
     black = pyvips.Image.black(s, s, bands=3)
+    src = _masked(run)
     tiles = []
     for r in range(v["rows"]):
         for c in range(v["cols"]):
-            p = run.dir / "art" / f"r{r}_c{c}.png"
+            p = src / f"r{r}_c{c}.png"
             tiles.append(pyvips.Image.new_from_file(str(p), access="sequential")[0:3] if p.exists() else black)
     img = pyvips.Image.arrayjoin(tiles, across=v["cols"])
     out = ROOT / "site" / "maps" / run.name / version

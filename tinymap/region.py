@@ -93,7 +93,10 @@ class Canvas:
 
 def render_canvas(run: Run) -> Canvas:
     v = run.view
-    return Canvas(run.dir / "render", v["shot_px"], tuple(v["canvas_px"]))
+    # shot não planejado lia azul-céu, que o modelo pintava como lago e o conserto contava como rio;
+    # na maquete OSM o preenchimento é a cor do chão
+    fill = (207, 202, 185) if v.get("source") == "osm" else (135, 206, 235)
+    return Canvas(run.dir / "render", v["shot_px"], tuple(v["canvas_px"]), fill=fill)
 
 
 def art_canvas(run: Run) -> Canvas:
