@@ -35,7 +35,9 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
                 continue
             a, r = Image.open(art).convert("RGB"), Image.open(render).convert("RGB")
             if a.width < 1024:  # zoomed quarters: train at 1024 too, the model sees 2x detail
-                a, r = a.resize((1024, 1024), Image.NEAREST), r.resize((1024, 1024), Image.LANCZOS)
+                a = a.resize((1024, 1024), Image.NEAREST)
+            if r.size != a.size:  # arte da revisão (tinymap review) já vem em 1024 px
+                r = r.resize(a.size, Image.LANCZOS)
             key = f"{Path(pd).name}_{fid}"
             a.save(tgt / f"{key}.png")
             r.save(ctl / f"{key}.png")

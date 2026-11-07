@@ -8,6 +8,7 @@
   tinymap stitch   <region.yaml> [--scale 0.125]  small preview of render (or --art) for checking
   tinymap teacher  <region.yaml> --backend qwen|gemini|folder --out pairs_v1 [--n 120] [--lora ...]
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
+  tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
   tinymap try      <region.yaml> --lora X.safetensors [--at lat,lon]   one block, to judge a LoRA
   tinymap generate <region.yaml> --lora X.safetensors [--gpu 0]       paint the map (one worker)
@@ -61,6 +62,8 @@ def main() -> None:
     ap.add_argument("--weights", default="yolo11m.pt")
     ap.add_argument("--pinos")
     ap.add_argument("--precise", default="yes", choices=["yes", "no"])
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args()
     run = R.load(a.region, pilot=a.pilot)
 
@@ -100,6 +103,9 @@ def main() -> None:
     elif a.cmd == "sheets":
         from .teacher import contact_sheet
         print(contact_sheet(run.dir / a.out))
+    elif a.cmd == "review":
+        from .review import Review, serve
+        serve(Review(run, a.out, a.region, a.pilot), a.host, a.port)
     elif a.cmd == "train":
         from .train import build
         build(run, [run.dir / p for p in a.pairs], a.name, a.model, a.steps, a.rank)

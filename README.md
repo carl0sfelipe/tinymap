@@ -55,6 +55,32 @@ Quanto mais prédios tiverem `building:levels` no OSM, melhor fica a maquete; d�
 você mesmo no openstreetmap.org (o `osm3d` informa quantos já têm altura). Áreas filmadas com
 drone (fotogrametria) entram depois como tileset próprio, por cima da maquete.
 
+## Pares de treino com revisão humana (human in the loop)
+
+O modelo base erra muito na maquete (inventa lago na mata, cidade no rio, ou copia a maquete), então
+os pares de treino saem de um ciclo com revisão: o professor gera um lote, você revisa e corrige numa
+página local, e só o que você aprova vira par de treino.
+
+```bash
+# 1º lote: 120 recortes, 4 candidatos cada, Qwen-Image-2.1 em 4 H100 (~US$ 5)
+modal run tinymap/modal_app.py::teacher --region regions/triplice-fronteira.yaml --pilot --cands 4
+# revisão: http://127.0.0.1:8765
+tinymap review regions/triplice-fronteira.yaml --pilot
+```
+
+Na página, para cada recorte: a maquete, os candidatos (com as notas dos checks só como sugestão) e
+um editor de pixel art (lápis, balde, conta-gotas, clonar de outro candidato ou da maquete, maquete e
+rio do OSM por cima, desfazer). Decisões:
+
+- **Aprovar** grava `<id>_art.png` (1024 px, como ficou na tela). Só esses entram no `tinymap train`.
+- **Refazer** guarda uma dica ("a área verde-escura é mata, não lago") que entra no prompt do recorte
+  no próximo lote.
+- **Descartar** tira o recorte da fila.
+
+O botão **Gerar próximo lote** (com custo estimado) redesenha os "refazer" e, se pedir, recortes novos;
+os candidatos aparecem na página conforme chegam. Estado em `pairs_v1/review.json`, notas em
+`checks.json`. O Qwen-Image-2.1 tem licença Qwen RESEARCH (só uso não comercial).
+
 ## Passo a passo para a Tríplice Fronteira
 
 **1. Piloto pequeno (≈1,5 × 1,7 km no Marco das Três Fronteiras).** Valida a câmera e a cobertura 3D.

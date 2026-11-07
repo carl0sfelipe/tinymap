@@ -18,7 +18,6 @@ sincronizada. `download` traz a arte pintada de volta para runs/<região>/art.
 Na H100 (80 GB) o modelo roda em bf16 sem quantização: mais rápido e um pouco melhor que NF4.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 
@@ -225,69 +224,91 @@ def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at
     print(f"resultado em {out}")
 
 
-@app.function(image=image21, gpu=GPU, volumes={"/hf": hf_cache}, timeout=4 * 3600)
-def _teach(items: list[tuple[str, bytes, str]], model_id: str, steps: int, cands: int, seed: int) -> list[tuple[str, int, bytes]]:
-    """Redesenha cada recorte `cands` vezes (sementes diferentes). As checagens rodam no seu computador."""
-    import time
-    from io import BytesIO
+@app.cls(image=image21, gpu=GPU, volumes={"/hf": hf_cache}, timeout=4 * 3600, max_containers=4,
+         scaledown_window=120)
+class Teacher:
+    """Carrega o Qwen-Image-2.1 uma vez por container; cada recorte volta assim que fica pronto."""
+    model_id: str = modal.parameter(default=TEACHER)
 
-    import torch
-    from diffusers import QwenImage21Pipeline
-    from PIL import Image
+    @modal.enter()
+    def load(self):
+        import torch
+        from diffusers import QwenImage21Pipeline
+        self.pipe = QwenImage21Pipeline.from_pretrained(self.model_id, torch_dtype=torch.bfloat16).to("cuda")
+        self.pipe.set_progress_bar_config(disable=True)
+        hf_cache.commit()
 
-    pipe = QwenImage21Pipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16).to("cuda")
-    pipe.set_progress_bar_config(disable=True)
-    hf_cache.commit()
-    out = []
-    for fid, png, prompt in items:
+    @modal.method()
+    def redraw(self, fid: str, png: bytes, prompt: str, steps: int, seeds: list[int]) -> list[tuple[str, int, bytes]]:
+        import time
+        from io import BytesIO
+
+        import torch
+        from PIL import Image
         img = Image.open(BytesIO(png)).convert("RGB")
-        for k in range(cands):
+        out = []
+        for s in seeds:
             t0 = time.time()
-            g = torch.Generator("cuda").manual_seed(seed + k)
-            res = pipe(prompt=prompt, image=img, width=img.width, height=img.height,
-                       num_inference_steps=steps, generator=g).images[0]
+            res = self.pipe(prompt=prompt, image=img, width=img.width, height=img.height, num_inference_steps=steps,
+                            generator=torch.Generator("cuda").manual_seed(s)).images[0]
             b = BytesIO()
             res.save(b, "PNG")
-            out.append((fid, k, b.getvalue()))
-            print(f"{fid} #{k} {time.time() - t0:.1f}s", flush=True)
-    return out
+            out.append((fid, s, b.getvalue()))
+            print(f"{fid} seed {s} {time.time() - t0:.1f}s", flush=True)
+        return out
 
 
 @app.local_entrypoint()
 def teacher(region: str = "regions/triplice-fronteira.yaml", pilot: bool = False, out: str = "pairs_v1",
             n: int = 120, cands: int = 2, gpus: int = 4, steps: int = 40, smoke: int = 0,
-            model: str = TEACHER, seed: int = 0):
-    """Pares de treino com o Qwen-Image-2.1 na Modal: prepara os recortes aqui, redesenha lá em `gpus`
-    H100 e roda as checagens aqui. --smoke 4 faz só 4 recortes para medir tempo/custo antes do lote."""
+            model: str = TEACHER, seed: int = 0, new: int = 0):
+    """Lote de pares de treino com o Qwen-Image-2.1, no ciclo com revisão humana (tinymap review).
+
+    Redesenha: recortes ainda sem candidato + os marcados "refazer" na revisão (com a dica no prompt).
+    --new 20 acrescenta 20 recortes novos. --smoke 4 faz só 4 para medir tempo/custo.
+    Cada candidato é gravado assim que chega (<id>_cand<k>.png); no fim, os checks dão notas
+    (checks.json), que a página de revisão mostra como sugestão."""
+    import json
     from io import BytesIO
 
     from tinymap import region as R
     from tinymap import teacher as T
     run = R.load(region, pilot=pilot)
     d = run.dir / out
+    if new and (d / "frames.json").exists():
+        print(f"{len(T.extend(run, d, new, seed))} recortes novos")
     jobs = T.prepare(run, d, n, seed)
     if smoke:
         jobs = jobs[:smoke]
-    todo = [j for j in jobs if not list(d.glob(f"{j['id']}_cand*.png"))]
-    print(f"{len(jobs)} recortes, {len(todo)} sem candidato; {cands} por recorte em até {gpus} {GPU}")
+    todo = [j for j in jobs if j["status"] == "redo" or (j["status"] != "discard" and not T.candidates(d, j["id"]))]
+    print(f"{len(todo)} recortes para redesenhar ({cands} candidatos cada) em até {gpus} {GPU}", flush=True)
 
     def png(im):
         b = BytesIO()
         im.save(b, "PNG")
         return b.getvalue()
 
-    items = [(j["id"], png(j["image"]), j["prompt"]) for j in todo]
-    if items:
-        k = -(-len(items) // max(1, gpus))
-        chunks = [items[i:i + k] for i in range(0, len(items), k)]
-        for res in _teach.map(chunks, kwargs={"model_id": model, "steps": steps, "cands": cands, "seed": seed}):
-            for fid, kk, data in res:
-                (d / f"{fid}_cand{kk}.png").write_bytes(data)
-    if smoke:
-        print(f"teste com {len(jobs)} recortes em {d}; veja os *_cand*.png antes de rodar o lote")
-        return
-    T.accept(run, d)
-    print(T.contact_sheet(d))
+    if todo:
+        args = []
+        for j in todo:
+            k0 = len(T.candidates(d, j["id"]))
+            args.append((j["id"], png(j["image"]), j["prompt"], steps, [seed + k0 + k for k in range(cands)]))
+        tm = Teacher.with_options(max_containers=gpus)(model_id=model)
+        done = 0
+        for res in tm.redraw.starmap(args, order_outputs=False):
+            for fid, s, data in res:
+                k = len(T.candidates(d, fid))
+                (d / f"{fid}_cand{k}.png").write_bytes(data)
+            done += 1
+            print(f"recebido {done}/{len(todo)}: {res[0][0] if res else '?'}", flush=True)
+        # quem foi refeito volta para a fila de revisão
+        rv = T.load_review(d)
+        for j in todo:
+            if rv.get(j["id"], {}).get("status") == "redo":
+                rv[j["id"]]["status"] = "todo"
+        (d / "review.json").write_text(json.dumps(rv, indent=1, ensure_ascii=False))
+    T.score(run, d)
+    print("lote pronto; revise em: tinymap review " + region + (" --pilot" if pilot else ""))
 
 
 @app.function(image=image, volumes={"/runs": runs}, timeout=3600)

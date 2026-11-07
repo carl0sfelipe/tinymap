@@ -153,9 +153,35 @@ def run_teacher(run: Run, out_dir: Path, n: int, backend: str, model=None, seed:
     print(f"{kept}/{len(frames)} pairs kept in {out_dir}")
 
 
+def load_review(out_dir: Path) -> dict:
+    """Decisões da revisão humana (tinymap review): {id: {status, chosen, hint, edited}}.
+    status: todo (a revisar) | approved | redo (gerar de novo, com a dica) | discard."""
+    p = out_dir / "review.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def candidates(out_dir: Path, fid: str) -> list[Path]:
+    return sorted(out_dir.glob(f"{fid}_cand*.png"), key=lambda p: int(p.stem.rsplit("cand", 1)[1]))
+
+
+def extend(run: Run, out_dir: Path, m: int, seed: int) -> list[dict]:
+    """Acrescenta m recortes novos a frames.json (rodada nova: ids r<k>_..., sem repetir caixa)."""
+    frames = json.loads((out_dir / "frames.json").read_text())
+    rnd = 1 + max(fr.get("round", 0) for fr in frames)
+    seen = {tuple(fr["box"]) for fr in frames}
+    new = [fr for fr in sample_frames(run, m + 50, seed + 1000 * rnd) if not fr["id"].startswith("lm_")
+           and tuple(fr["box"]) not in seen][:m]
+    for fr in new:
+        fr["id"], fr["round"] = f"r{rnd}_{fr['id']}", rnd
+    frames += new
+    (out_dir / "frames.json").write_text(json.dumps(frames, indent=1))
+    return new
+
+
 def prepare(run: Run, out_dir: Path, n: int, seed: int = 0) -> list[dict]:
     """Inputs for a batch teacher (e.g. Qwen-Image-2.1 on Modal): frames.json, <id>_render.png and
-    one prompt per frame (style.teacher_prompt or style.prompt, plus where the river is)."""
+    one prompt per frame (style.teacher_prompt or style.prompt, plus where the river is, plus the
+    reviewer's hint from review.json)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     frames_file = out_dir / "frames.json"
     if frames_file.exists():
@@ -166,15 +192,56 @@ def prepare(run: Run, out_dir: Path, n: int, seed: int = 0) -> list[dict]:
     canvas, water = render_canvas(run), Water(run)
     style = run.region["style"]
     base = style.get("teacher_prompt") or style["prompt"]
+    review = load_review(out_dir)
     jobs = []
     for fr in frames:
         fid, box = fr["id"], tuple(fr["box"])
-        render = canvas.crop(box)
-        render.save(out_dir / f"{fid}_render.png")
-        jobs.append({"id": fid, "prompt": f"{base} {water_sentence(water.mask(box))}",
-                     "image": render.resize((FRAME, FRAME), Image.LANCZOS)})
+        rp = out_dir / f"{fid}_render.png"
+        if rp.exists():
+            render = Image.open(rp).convert("RGB")
+        else:
+            render = canvas.crop(box)
+            render.save(rp)
+        hint = review.get(fid, {}).get("hint", "").strip()
+        prompt = f"{base} {water_sentence(water.mask(box))}" + (f" Note for this view: {hint}" if hint else "")
+        jobs.append({"id": fid, "prompt": prompt, "image": render.resize((FRAME, FRAME), Image.LANCZOS),
+                     "status": review.get(fid, {}).get("status", "todo")})
     (out_dir / "prompts.json").write_text(json.dumps({j["id"]: j["prompt"] for j in jobs}, indent=1, ensure_ascii=False))
     return jobs
+
+
+def _score_one(args) -> tuple[str, dict]:
+    run, out_dir, fr, done = args
+    if run.dir not in _WATER:
+        _WATER[run.dir] = Water(run)
+    fid, box = fr["id"], tuple(fr["box"])
+    size = box[2] - box[0]
+    render = Image.open(out_dir / f"{fid}_render.png").convert("RGB")
+    mask = _WATER[run.dir].mask(box)
+    res = {}
+    for cand in candidates(out_dir, fid):
+        if cand.name in done:
+            continue
+        small = Image.open(cand).convert("RGB").resize((FRAME, FRAME), Image.LANCZOS).resize((size, size), Image.LANCZOS)
+        fails, m = check(small, render, mask)
+        res[cand.name] = {"fails": fails, "m": {k: round(v, 3) for k, v in m.items()}}
+    return fid, res
+
+
+def score(run: Run, out_dir: Path, workers: int | None = None) -> dict:
+    """Checks de todos os candidatos ainda sem nota -> checks.json. Só sugerem: quem aprova é a revisão."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    frames = json.loads((out_dir / "frames.json").read_text())
+    p = out_dir / "checks.json"
+    checks = json.loads(p.read_text()) if p.exists() else {}
+    with ProcessPoolExecutor(workers or os.cpu_count()) as ex:
+        for fid, res in ex.map(_score_one, [(run, out_dir, fr, set(checks)) for fr in frames]):
+            checks.update(res)
+    p.write_text(json.dumps(checks))
+    ok = sum(1 for v in checks.values() if not v["fails"])
+    print(f"checks: {len(checks)} candidatos, {ok} passam (sugestões para a revisão)")
+    return checks
 
 
 _WATER = {}

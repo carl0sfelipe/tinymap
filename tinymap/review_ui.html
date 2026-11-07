@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tinymap · revisão</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #16181c; --panel: #1e2126; --panel2: #262a30; --line: #343a42; --text: #e6e8eb; --muted: #9aa3ad;
+  --accent: #5aa9ff; --ok: #4cc38a; --warn: #f0b84a; --bad: #ef6b6b; --redo: #b78cff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, select, textarea { font: inherit; color: var(--text); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 6px; }
+button { padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); color: #0b1220; border-color: var(--accent); }
+button.ok { background: var(--ok); color: #06150d; border-color: var(--ok); font-weight: 600; }
+button.redo { border-color: var(--redo); color: var(--redo); }
+button.bad { border-color: var(--bad); color: var(--bad); }
+kbd { font: 11px ui-monospace, monospace; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+button kbd { color: inherit; border-color: currentColor; opacity: .7; }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; overflow: hidden; }
+header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 8px 12px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 2px 8px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; }
+.chip.sel { border-color: var(--accent); color: var(--accent); }
+.gen { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.gen input { width: 52px; padding: 4px 6px; }
+.gen .est { color: var(--muted); }
+#genlog { width: 100%; color: var(--muted); font: 11px ui-monospace, monospace; white-space: pre-wrap;
+  max-height: 3.2em; overflow: hidden; display: none; }
+main { display: grid; grid-template-columns: 210px minmax(0, 1fr) 250px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+#list { overflow: auto; border-right: 1px solid var(--line); padding: 6px; }
+.item { display: grid; grid-template-columns: 56px 1fr; gap: 8px; padding: 4px; border-radius: 6px; cursor: pointer;
+  align-items: center; border: 1px solid transparent; }
+.item:hover { background: var(--panel2); }
+.item.cur { border-color: var(--accent); background: var(--panel2); }
+.item img { width: 56px; height: 56px; image-rendering: pixelated; border-radius: 4px; display: block; }
+.item .meta { min-width: 0; }
+.item .id { font: 11px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.st-todo { background: var(--muted); } .st-approved { background: var(--ok); }
+.st-redo { background: var(--redo); } .st-discard { background: var(--bad); }
+.sub { color: var(--muted); font-size: 11px; }
+#center { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+#strip { display: flex; gap: 8px; padding: 8px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel); }
+.th { flex: 0 0 auto; width: 112px; cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 2px; position: relative; }
+.th img { width: 104px; height: 104px; image-rendering: pixelated; display: block; border-radius: 4px; }
+.th.cur { border-color: var(--accent); }
+.th .lab { font-size: 11px; display: flex; justify-content: space-between; gap: 4px; margin-top: 2px; }
+.th .bad { color: var(--bad); font-size: 10px; line-height: 1.2; }
+.th .good { color: var(--ok); font-size: 10px; }
+.th .new { position: absolute; top: 4px; right: 4px; background: var(--warn); color: #000; font-size: 10px;
+  padding: 0 4px; border-radius: 3px; }
+#stage { position: relative; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44px minmax(0, 1fr); }
+#tools { display: flex; flex-direction: column; gap: 4px; padding: 6px 4px; border-right: 1px solid var(--line); background: var(--panel); }
+#tools button { width: 36px; height: 36px; padding: 0; font-size: 16px; }
+#wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0d0f12; touch-action: none; }
+#hud { position: absolute; left: 52px; bottom: 6px; color: var(--muted); font: 11px ui-monospace, monospace;
+  background: rgba(0,0,0,.45); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+aside { border-left: 1px solid var(--line); padding: 10px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+aside h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row label { color: var(--muted); }
+#pal { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+#pal div { aspect-ratio: 1; border-radius: 3px; cursor: pointer; border: 1px solid rgba(255,255,255,.08); }
+#pal div.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+#color { width: 40px; height: 28px; padding: 0; }
+textarea { width: 100%; min-height: 64px; padding: 6px; resize: vertical; }
+.actions { display: grid; gap: 6px; }
+.actions button { padding: 8px; text-align: left; }
+#msg { color: var(--muted); min-height: 1.4em; }
+.help { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.empty { padding: 40px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>tinymap · revisão</h1>
+    <div class="chips" id="chips"></div>
+    <div class="gen">
+      <label>candidatos <input id="g-cands" type="number" min="1" max="8" value="4"></label>
+      <label>recortes novos <input id="g-new" type="number" min="0" max="200" value="0"></label>
+      <label>GPUs <input id="g-gpus" type="number" min="1" max="8" value="4"></label>
+      <span class="est" id="g-est"></span>
+      <button id="g-go">Gerar próximo lote</button>
+    </div>
+    <div id="genlog"></div>
+  </header>
+  <main>
+    <div id="list"></div>
+    <div id="center">
+      <div id="strip"></div>
+      <div id="stage">
+        <div id="tools">
+          <button data-tool="pencil" title="Lápis (B) · Alt+clique pega a cor">✏️</button>
+          <button data-tool="fill" title="Balde (G)">🪣</button>
+          <button data-tool="pick" title="Conta-gotas (I)">💧</button>
+          <button data-tool="clone" title="Clonar de outra imagem (C)">🧬</button>
+          <button data-tool="pan" title="Mover (H ou segure espaço)">✋</button>
+          <hr style="width:100%;border-color:var(--line)">
+          <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
+          <button id="b-redo" title="Refazer (Ctrl+Shift+Z)">↷</button>
+          <button id="b-fit" title="Enquadrar (F)">⤢</button>
+        </div>
+        <div id="wrap"><canvas id="cv"></canvas></div>
+        <div id="hud"></div>
+      </div>
+    </div>
+    <aside>
+      <section>
+        <h3>Pincel</h3>
+        <div class="row"><input id="color" type="color" value="#4a7a3a"><label>tamanho</label>
+          <input id="size" type="range" min="1" max="32" value="2" style="flex:1"><span id="sizev">2</span></div>
+        <div class="row" style="margin-top:6px"><label>clonar de</label><select id="clonesrc" style="flex:1"></select></div>
+        <div class="row" style="margin-top:6px"><label>balde: tolerância</label>
+          <input id="tol" type="range" min="0" max="80" value="18" style="flex:1"></div>
+      </section>
+      <section>
+        <h3>Paleta desta imagem</h3>
+        <div id="pal"></div>
+      </section>
+      <section>
+        <h3>Ver por cima</h3>
+        <div class="row"><label>maquete</label><input id="ov" type="range" min="0" max="100" value="0" style="flex:1"><kbd>O</kbd></div>
+        <div class="row"><label><input id="water" type="checkbox"> rio do OSM</label><kbd>W</kbd>
+          <label><input id="grid" type="checkbox" checked> grade</label></div>
+      </section>
+      <section>
+        <h3>Dica para o próximo lote</h3>
+        <textarea id="hint" placeholder="ex.: a área verde-escura é mata, não lago; mantenha as casas pequenas"></textarea>
+      </section>
+      <section class="actions">
+        <button class="ok" id="a-ok">Aprovar (vira par de treino)<kbd>A</kbd></button>
+        <button class="redo" id="a-redo">Refazer no próximo lote<kbd>R</kbd></button>
+        <button class="bad" id="a-del">Descartar recorte<kbd>D</kbd></button>
+        <button id="a-todo">Voltar para "a revisar"</button>
+        <div id="msg"></div>
+      </section>
+      <section class="help">
+        <b>Atalhos</b>: 1–9 candidato · J/K próximo/anterior · B lápis · G balde · I conta-gotas · C clonar ·
+        espaço+arrastar move · roda do mouse dá zoom · [ ] tamanho · F enquadra.<br>
+        <b>Clonar</b> pinta com os pixels de outro candidato ou da maquete no mesmo lugar: bom para juntar o
+        melhor de cada versão.
+      </section>
+    </aside>
+  </main>
+</div>
+<script>
+"use strict";
+const N = 1024;                                   // tamanho de trabalho (os candidatos vêm em 1024 px)
+const $ = (s) => document.querySelector(s);
+const FAIL = { "invented-water": "água inventada", "land-on-water": "terra no rio", "render-copy": "cópia da maquete",
+  "photo-copy": "textura de foto", "geometry-drift": "fora do lugar", "blank-area": "buraco branco" };
+const STATUS = { todo: "a revisar", approved: "aprovados", redo: "refazer", discard: "descartados" };
+
+let S = null;                 // estado do servidor
+let filter = "todo";
+let cur = null;               // id do recorte aberto
+let base = null;              // nome da imagem em edição (cand ou art)
+let seenCands = {};           // para marcar candidatos novos
+const work = document.createElement("canvas"); work.width = work.height = N;
+const wctx = work.getContext("2d", { willReadFrequently: true });
+const src = {};               // nome -> canvas 1024 (render, cands, art)
+let waterCv = null;
+let undo = [], redo = [], edited = false;
+let tool = "pencil", view = { s: 1, x: 0, y: 0 }, spaceDown = false;
+const cv = $("#cv"), ctx = cv.getContext("2d");
+
+// ---------- servidor ----------
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+const img = (name, t) => `/img/${name}?t=${Math.round(t || 0)}`;
+function loadImage(url) {
+  return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+}
+function frame(id) { return S.frames.find((f) => f.id === id); }
+
+async function refresh() {
+  S = await api("/api/state");
+  drawChips(); drawList(); estimate(); drawGen();
+  if (!cur) { const f = visible()[0]; if (f) await open(f.id); else drawEmpty(); }
+  else drawStrip();
+}
+
+// ---------- lista e filtros ----------
+function visible() {
+  return S.frames.filter((f) => filter === "all" ? true : filter === "nocands" ? !f.cands.length
+    : filter === "todo" ? f.status === "todo" && f.cands.length : f.status === filter);
+}
+function drawChips() {
+  const n = (st) => S.frames.filter((f) => st === "todo" ? f.status === "todo" && f.cands.length : f.status === st).length;
+  const items = [["todo", `a revisar ${n("todo")}`], ["approved", `aprovados ${n("approved")}`], ["redo", `refazer ${n("redo")}`],
+    ["discard", `descartados ${n("discard")}`], ["nocands", `sem candidato ${S.frames.filter((f) => !f.cands.length).length}`],
+    ["all", `todos ${S.frames.length}`]];
+  $("#chips").innerHTML = items.map(([k, t]) => `<span class="chip ${k === filter ? "sel" : ""}" data-f="${k}">${t}</span>`).join("");
+}
+$("#chips").onclick = (e) => { const f = e.target.dataset.f; if (f) { filter = f; drawChips(); drawList(); } };
+function drawList() {
+  const v = visible();
+  $("#list").innerHTML = v.length ? v.map((f) => `<div class="item ${f.id === cur ? "cur" : ""}" data-id="${f.id}">
+      <img loading="lazy" src="${f.art ? img(f.id + "_art.png", f.art_t) : img(f.id + "_render.png")}">
+      <div class="meta"><div class="id">${f.id}</div>
+      <div class="sub"><span class="dot st-${f.status}"></span>${STATUS[f.status]} · ${f.cands.length} cand.${f.edited ? " · editado" : ""}</div></div></div>`).join("")
+    : `<div class="empty">nada aqui</div>`;
+}
+$("#list").onclick = (e) => { const it = e.target.closest(".item"); if (it) open(it.dataset.id); };
+
+// ---------- recorte aberto ----------
+async function open(id) {
+  if (edited && !confirm("Você tem edição não salva neste recorte. Descartar?")) return;
+  cur = id; edited = false; undo = []; redo = [];
+  const f = frame(id);
+  for (const k in src) delete src[k];
+  const r = await loadImage(img(id + "_render.png"));
+  src.render = toCanvas(r, true);
+  $("#hint").value = f.hint || "";
+  waterCv = null;
+  loadImage(`/water/${id}`).then((m) => { waterCv = tint(m); draw(); }).catch(() => {});
+  const best = f.cands.find((c) => c.fails && !c.fails.length);
+  const pick = f.art ? id + "_art.png" : (f.chosen && f.cands.find((c) => c.name === f.chosen) ? f.chosen
+    : best ? best.name : f.cands[0]?.name);
+  if (f.art) src[id + "_art.png"] = toCanvas(await loadImage(img(id + "_art.png", f.art_t)), false);
+  await setBase(pick || "render");
+  seenCands[id] = new Set(f.cands.map((c) => c.name));
+  drawList(); drawStrip(); fit();
+}
+function toCanvas(image, smooth) {
+  const c = document.createElement("canvas"); c.width = c.height = N;
+  const x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingEnabled = smooth;
+  x.drawImage(image, 0, 0, N, N); return c;
+}
+function tint(mask) {
+  const c = toCanvas(mask, false), x = c.getContext("2d"), d = x.getImageData(0, 0, N, N);
+  for (let i = 0; i < d.data.length; i += 4) { const w = d.data[i] > 127; d.data[i] = 0; d.data[i + 1] = 220; d.data[i + 2] = 255; d.data[i + 3] = w ? 110 : 0; }
+  x.putImageData(d, 0, 0); return c;
+}
+async function getSrc(name) {
+  if (!src[name]) {
+    const f = frame(cur), c = f.cands.find((k) => k.name === name);
+    src[name] = toCanvas(await loadImage(img(name, c?.t)), false);
+  }
+  return src[name];
+}
+async function setBase(name) {
+  if (edited && !confirm("Trocar a imagem descarta a edição atual. Continuar?")) return;
+  const c = await getSrc(name);
+  wctx.clearRect(0, 0, N, N); wctx.drawImage(c, 0, 0);
+  base = name; edited = false; undo = []; redo = [];
+  palette(); drawStrip(); fillCloneSrc(); draw();
+}
+function drawStrip() {
+  const f = frame(cur); if (!f) return;
+  const seen = seenCands[cur] || new Set();
+  let h = `<div class="th ${base === "render" ? "cur" : ""}" data-n="render"><img src="${img(cur + "_render.png")}">
+    <div class="lab"><span>maquete</span></div></div>`;
+  if (f.art) h += `<div class="th ${base === cur + "_art.png" ? "cur" : ""}" data-n="${cur}_art.png"><img src="${img(cur + "_art.png", f.art_t)}">
+    <div class="lab"><span>aprovado</span><span class="good">✓</span></div></div>`;
+  f.cands.forEach((c, i) => {
+    const fails = c.fails === undefined || c.fails === null ? `<span class="sub">sem nota</span>`
+      : c.fails.length ? `<span class="bad">${c.fails.map((x) => FAIL[x] || x).join(", ")}</span>` : `<span class="good">✓ passa</span>`;
+    h += `<div class="th ${base === c.name ? "cur" : ""}" data-n="${c.name}">${seen.has(c.name) ? "" : `<span class="new">novo</span>`}
+      <img src="${img(c.name, c.t)}"><div class="lab"><span>${i + 1}</span>${fails}</div></div>`;
+  });
+  $("#strip").innerHTML = h;
+}
+$("#strip").onclick = (e) => { const t = e.target.closest(".th"); if (t) setBase(t.dataset.n); };
+function fillCloneSrc() {
+  const f = frame(cur), opts = [["render", "maquete"]].concat(f.cands.map((c, i) => [c.name, `candidato ${i + 1}`]));
+  if (f.art) opts.push([cur + "_art.png", "aprovado"]);
+  const prev = $("#clonesrc").value;
+  $("#clonesrc").innerHTML = opts.filter(([n]) => n !== base).map(([n, t]) => `<option value="${n}">${t}</option>`).join("");
+  if ([...$("#clonesrc").options].some((o) => o.value === prev)) $("#clonesrc").value = prev;
+}
+function drawEmpty() { cur = null; $("#strip").innerHTML = `<div class="empty">Nenhum recorte com candidato. Gere um lote.</div>`; ctx.clearRect(0, 0, cv.width, cv.height); }
+
+// ---------- paleta ----------
+function palette() {
+  const d = wctx.getImageData(0, 0, N, N).data, count = new Map();
+  for (let i = 0; i < d.length; i += 16) {          // amostra 1 a cada 4 px
+    const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3);
+    count.set(k, (count.get(k) || 0) + 1);
+  }
+  const top = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 32).map(([k]) =>
+    hex(((k >> 10) & 31) * 8 + 4, ((k >> 5) & 31) * 8 + 4, (k & 31) * 8 + 4));
+  $("#pal").innerHTML = top.map((c) => `<div style="background:${c}" data-c="${c}" title="${c}"></div>`).join("");
+}
+$("#pal").onclick = (e) => { const c = e.target.dataset.c; if (c) setColor(c); };
+function hex(r, g, b) { return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join(""); }
+function setColor(c) { $("#color").value = c; [...$("#pal").children].forEach((d) => d.classList.toggle("sel", d.dataset.c === c)); }
+function rgb() { const c = $("#color").value; return [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)); }
+
+// ---------- desenho na tela ----------
+function syncSize() {
+  const r = cv.getBoundingClientRect(), w = Math.max(1, Math.round(r.width * devicePixelRatio)), h = Math.max(1, Math.round(r.height * devicePixelRatio));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+}
+function resize() { syncSize(); draw(); }
+new ResizeObserver(resize).observe(document.querySelector("#wrap"));
+function fit() { syncSize(); const s = Math.min(cv.width, cv.height) / N * 0.96; view = { s, x: (cv.width - N * s) / 2, y: (cv.height - N * s) / 2 }; draw(); }
+let mouse = null;
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!cur) return;
+  ctx.imageSmoothingEnabled = false;
+  ctx.setTransform(view.s, 0, 0, view.s, view.x, view.y);
+  ctx.drawImage(work, 0, 0);
+  const ov = +$("#ov").value / 100;
+  if (ov > 0 && src.render) { ctx.globalAlpha = ov; ctx.drawImage(src.render, 0, 0); ctx.globalAlpha = 1; }
+  if ($("#water").checked && waterCv) ctx.drawImage(waterCv, 0, 0);
+  if ($("#grid").checked && view.s >= 8) {
+    ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1 / view.s; ctx.beginPath();
+    const x0 = Math.max(0, Math.floor(-view.x / view.s)), x1 = Math.min(N, Math.ceil((cv.width - view.x) / view.s));
+    const y0 = Math.max(0, Math.floor(-view.y / view.s)), y1 = Math.min(N, Math.ceil((cv.height - view.y) / view.s));
+    for (let x = x0; x <= x1; x++) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    for (let y = y0; y <= y1; y++) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.lineWidth = 1 / view.s; ctx.strokeRect(0, 0, N, N);
+  if (mouse && (tool === "pencil" || tool === "clone")) {
+    const z = +$("#size").value, o = Math.floor(z / 2);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5 / view.s; ctx.strokeRect(mouse[0] - o, mouse[1] - o, z, z);
+  }
+  $("#hud").textContent = `${cur} · ${base === "render" ? "maquete" : base} · zoom ${view.s.toFixed(1)}×${edited ? " · editado" : ""}` +
+    (mouse ? ` · x ${mouse[0]} y ${mouse[1]}` : "");
+}
+function toImg(e) {
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * devicePixelRatio, py = (e.clientY - r.top) * devicePixelRatio;
+  return [Math.floor((px - view.x) / view.s), Math.floor((py - view.y) / view.s)];
+}
+
+// ---------- ferramentas ----------
+function snapshot() { undo.push(wctx.getImageData(0, 0, N, N)); if (undo.length > 25) undo.shift(); redo = []; }
+function doUndo() { if (!undo.length) return; redo.push(wctx.getImageData(0, 0, N, N)); wctx.putImageData(undo.pop(), 0, 0); edited = true; draw(); }
+function doRedo() { if (!redo.length) return; undo.push(wctx.getImageData(0, 0, N, N)); wctx.putImageData(redo.pop(), 0, 0); edited = true; draw(); }
+let stroke = null;   // {last:[x,y], data:ImageData, srcData}
+function stamp(x, y) {
+  const z = +$("#size").value, o = Math.floor(z / 2), d = stroke.data.data;
+  const [r, g, b] = stroke.color;
+  for (let yy = y - o; yy < y - o + z; yy++) for (let xx = x - o; xx < x - o + z; xx++) {
+    if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue;
+    const i = (yy * N + xx) * 4;
+    if (stroke.srcData) { const s = stroke.srcData.data; d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; }
+    else { d[i] = r; d[i + 1] = g; d[i + 2] = b; }
+    d[i + 3] = 255;
+  }
+}
+function line(a, b) {                                   // Bresenham: traço contínuo
+  let [x0, y0] = a; const [x1, y1] = b, dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let err = dx + dy;
+  for (;;) { stamp(x0, y0); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+}
+function pick(x, y) { if (x < 0 || y < 0 || x >= N || y >= N) return; const d = wctx.getImageData(x, y, 1, 1).data; setColor(hex(d[0], d[1], d[2])); }
+function fill(x, y) {
+  if (x < 0 || y < 0 || x >= N || y >= N) return;
+  snapshot();
+  const im = wctx.getImageData(0, 0, N, N), d = im.data, tol = +$("#tol").value;
+  const i0 = (y * N + x) * 4, t = [d[i0], d[i0 + 1], d[i0 + 2]], [r, g, b] = rgb();
+  if (t[0] === r && t[1] === g && t[2] === b) return;
+  const seen = new Uint8Array(N * N), st = [y * N + x];
+  const near = (i) => Math.abs(d[i] - t[0]) <= tol && Math.abs(d[i + 1] - t[1]) <= tol && Math.abs(d[i + 2] - t[2]) <= tol;
+  while (st.length) {
+    const p = st.pop(); if (seen[p]) continue; seen[p] = 1;
+    const i = p * 4; if (!near(i)) continue;
+    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+    const px = p % N;
+    if (px > 0) st.push(p - 1); if (px < N - 1) st.push(p + 1); if (p >= N) st.push(p - N); if (p < N * (N - 1)) st.push(p + N);
+  }
+  wctx.putImageData(im, 0, 0); edited = true; draw();
+}
+let panning = null;
+cv.addEventListener("pointerdown", async (e) => {
+  cv.setPointerCapture(e.pointerId);
+  const p = toImg(e);
+  if (e.button === 1 || e.button === 2 || spaceDown || tool === "pan") { panning = [e.clientX, e.clientY, view.x, view.y]; return; }
+  if (tool === "pick" || (tool === "pencil" && e.altKey)) return pick(...p);
+  if (tool === "fill") return fill(...p);
+  snapshot();
+  let srcData = null;
+  if (tool === "clone") { const n = $("#clonesrc").value; if (!n) return; srcData = (await getSrc(n)).getContext("2d").getImageData(0, 0, N, N); }
+  stroke = { last: p, data: wctx.getImageData(0, 0, N, N), srcData, color: rgb() };
+  line(p, p); wctx.putImageData(stroke.data, 0, 0); edited = true; draw();
+});
+cv.addEventListener("pointermove", (e) => {
+  mouse = toImg(e);
+  if (panning) { view.x = panning[2] + (e.clientX - panning[0]) * devicePixelRatio; view.y = panning[3] + (e.clientY - panning[1]) * devicePixelRatio; }
+  else if (stroke) { line(stroke.last, mouse); stroke.last = mouse; wctx.putImageData(stroke.data, 0, 0); }
+  draw();
+});
+const end = () => { panning = null; if (stroke) { stroke = null; palette(); } };
+cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+cv.addEventListener("pointerleave", () => { mouse = null; draw(); });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * devicePixelRatio, py = (e.clientY - r.top) * devicePixelRatio;
+  const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(48, Math.max(0.2, view.s * k));
+  view.x = px - (px - view.x) * s / view.s; view.y = py - (py - view.y) * s / view.s; view.s = s; draw();
+}, { passive: false });
+function setTool(t) { tool = t; document.querySelectorAll("#tools [data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "pan" ? "grab" : "crosshair"; }
+$("#tools").onclick = (e) => { const t = e.target.closest("[data-tool]"); if (t) setTool(t.dataset.tool); };
+$("#b-undo").onclick = doUndo; $("#b-redo").onclick = doRedo; $("#b-fit").onclick = fit;
+$("#size").oninput = () => { $("#sizev").textContent = $("#size").value; draw(); };
+["#ov", "#water", "#grid"].forEach((s) => $(s).addEventListener("input", draw));
+
+// ---------- decisões ----------
+function say(t) { $("#msg").textContent = t; }
+function next() { const v = visible(); const i = v.findIndex((f) => f.id === cur); const n = v[i + 1] || v.find((f) => f.id !== cur); if (n) open(n.id); else drawEmpty(); }
+function prev() { const v = visible(); const i = v.findIndex((f) => f.id === cur); if (i > 0) open(v[i - 1].id); }
+async function approve() {
+  if (!cur) return;
+  const chosen = base === "render" ? null : base;
+  await api("/api/art", { id: cur, png: work.toDataURL("image/png"), chosen, edited: edited || base === "render" });
+  edited = false; say(`✓ ${cur} aprovado`); await refreshKeep(); next();
+}
+async function decide(status) {
+  if (!cur) return;
+  await api("/api/decide", { id: cur, status, chosen: base === "render" ? null : base, hint: $("#hint").value });
+  edited = false; say(`${cur}: ${STATUS[status]}`); await refreshKeep(); if (status !== "todo") next();
+}
+async function refreshKeep() { S = await api("/api/state"); drawChips(); drawList(); estimate(); drawStrip(); }
+$("#a-ok").onclick = approve; $("#a-redo").onclick = () => decide("redo"); $("#a-del").onclick = () => decide("discard");
+$("#a-todo").onclick = () => decide("todo");
+
+// ---------- próximo lote ----------
+function estimate() {
+  if (!S) return;
+  const c = S.cost, cands = +$("#g-cands").value || 1, nw = +$("#g-new").value || 0, gpus = +$("#g-gpus").value || 1;
+  const frames = S.frames.filter((f) => f.status === "redo" || (f.status !== "discard" && !f.cands.length)).length + nw;
+  const ims = frames * cands, used = Math.min(gpus, Math.max(1, frames));
+  const usd = ims * c.sec_per_image / 3600 * c.h100_per_hour + used * c.load_s / 3600 * c.h100_per_hour;
+  const min = (ims * c.sec_per_image / used + c.load_s) / 60;
+  $("#g-est").textContent = frames ? `${frames} recortes · ${ims} imagens · ~${Math.ceil(min)} min · ~US$ ${usd.toFixed(2)}` : "nada para gerar (marque \"refazer\" ou peça recortes novos)";
+  $("#g-go").disabled = !frames || S.gen.running;
+  return { frames, ims, usd };
+}
+["#g-cands", "#g-new", "#g-gpus"].forEach((s) => $(s).addEventListener("input", estimate));
+$("#g-go").onclick = async () => {
+  const e = estimate();
+  if (!confirm(`Gerar ${e.ims} imagens (${e.frames} recortes) na Modal por ~US$ ${e.usd.toFixed(2)}?`)) return;
+  try { await api("/api/generate", { cands: +$("#g-cands").value, new: +$("#g-new").value, gpus: +$("#g-gpus").value }); say("lote disparado"); }
+  catch (err) { say("erro: " + err.message); }
+  await refreshKeep(); drawGen();
+};
+function drawGen() {
+  const g = S.gen, el = $("#genlog");
+  el.style.display = g.running || g.log.length ? "block" : "none";
+  el.textContent = (g.running ? "⏳ gerando… " : g.code === 0 ? "✓ último lote terminou. " : g.code ? `✗ lote falhou (código ${g.code}). ` : "") + g.log.slice(-2).join("  ·  ");
+  $("#g-go").textContent = g.running ? "Gerando…" : "Gerar próximo lote";
+}
+setInterval(async () => {                      // candidatos novos aparecem enquanto o lote roda
+  if (!S) return;
+  const was = S.gen.running;
+  S = await api("/api/state"); drawGen(); estimate();
+  if (S.gen.running || was) { drawChips(); drawList(); if (cur) drawStrip(); }
+}, 4000);
+
+// ---------- teclado ----------
+addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea, select")) return;
+  const k = e.key.toLowerCase();
+  if (e.key === " ") { spaceDown = true; cv.style.cursor = "grab"; e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); return e.shiftKey ? doRedo() : doUndo(); }
+  if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); return doRedo(); }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^[1-9]$/.test(k)) { const c = frame(cur)?.cands[+k - 1]; if (c) setBase(c.name); return; }
+  const m = { b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"),
+    h: () => setTool("pan"), f: fit, j: next, arrowright: next, k: prev, arrowleft: prev, a: approve,
+    r: () => decide("redo"), d: () => decide("discard"),
+    o: () => { $("#ov").value = +$("#ov").value ? 0 : 50; draw(); }, w: () => { $("#water").checked = !$("#water").checked; draw(); },
+    "[": () => { $("#size").value = +$("#size").value - 1; $("#size").oninput(); },
+    "]": () => { $("#size").value = +$("#size").value + 1; $("#size").oninput(); } };
+  if (m[k]) { e.preventDefault(); m[k](); }
+});
+addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; cv.style.cursor = tool === "pan" ? "grab" : "crosshair"; } });
+addEventListener("beforeunload", (e) => { if (edited) { e.preventDefault(); e.returnValue = ""; } });
+addEventListener("resize", resize);
+
+setTool("pencil"); resize(); refresh();
+</script>
+</body>
+</html>
