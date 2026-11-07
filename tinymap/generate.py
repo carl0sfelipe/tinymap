@@ -73,12 +73,16 @@ def water_errors(img, render, f: int = 4) -> tuple[np.ndarray, np.ndarray]:
     os filtros do PIL ficam lentos demais em blocos de 8 mil px."""
     from .checks import _wet
     art = _wet(img)
+    a16 = np.asarray(img.convert("RGB"), dtype=np.int16)
+    # para "terra no rio" vale qualquer azul, até acinzentado/esverdeado: o modelo nem sempre usa o azul
+    # saturado do render, e a regra estrita marcava 61% de um bloco de rio como terra
+    loose = (a16[..., 2] - a16[..., 0] > 25) & (a16[..., 2] >= a16[..., 1] - 5)
     ref = _small(_wet(render), f)
     a = _filt(_filt(_small(art, f), "min", 3), "max", 3)      # sem pontinhos (~9 px na resolução cheia)
     near = _filt(ref, "max", 2 * (12 // f) + 1)                # 12 px de folga na margem
     core = _filt(ref, "min", 2 * (12 // f) + 1)                # miolo do rio
     invented = _big(a & ~near, f, art.shape) & art
-    land = _big(_filt(_filt(_small(~art, f), "min", 3), "max", 3) & core, f, art.shape) & ~art
+    land = _big(_filt(_filt(_small(~loose, f), "min", 3), "max", 3) & core, f, art.shape) & ~loose
     return invented, land
 
 

@@ -170,7 +170,7 @@ def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gp
 @app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=3600)
 def _try(region: str, lora_name: str | None, lat: float | None, lon: float | None,
          pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "",
-         single: str = "", strength: float = 1.0) -> tuple[bytes, bytes]:
+         single: str = "", strength: float = 1.0, negative: str = "") -> tuple[bytes, bytes]:
     import time
     from io import BytesIO
     run = _setup(region, pilot)
@@ -184,7 +184,9 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
     size = 3072
     x0, y0 = int(x - size / 2) // 16 * 16, int(y - size / 2) // 16 * 16
     render = render_canvas(run).crop((x0, y0, x0 + size, y0 + size))
-    g, style = run.region["generate"], run.region["style"]
+    g, style = run.region["generate"], dict(run.region["style"])
+    if negative:
+        style["negative"] = negative
     lora = str(run.dir / "loras" / lora_name) if lora_name else None
     # 0 / "" = o que está no YAML da região
     steps, true_cfg = steps or g["steps"], true_cfg or g.get("true_cfg", 1.0)
@@ -221,12 +223,12 @@ def _try(region: str, lora_name: str | None, lat: float | None, lon: float | Non
 @app.local_entrypoint()
 def try_lora(region: str = "regions/triplice-fronteira.yaml", lora: str = "", at: str = "-25.5925,-54.5913",
              pilot: bool = False, steps: int = 0, true_cfg: float = 0, prompt: str = "", tag: str = "",
-             single: str = "", strength: float = 1.0):
+             single: str = "", strength: float = 1.0, negative: str = ""):
     """steps/true_cfg/prompt sobrescrevem o YAML para comparar; tag entra no nome do arquivo.
     --strength 0.5 parte do render com ruído parcial (troca o estilo sem redesenhar a planta)."""
     lat, lon = map(float, at.split(",")) if at else (None, None)
     r, a = _try.remote(region, Path(lora).name if lora else None, lat, lon, pilot, steps, true_cfg, prompt, single,
-                       strength)
+                       strength, negative)
     out = ROOT / "runs" / "modal_try"
     out.mkdir(parents=True, exist_ok=True)
     # no diagnóstico --single o render é só o recorte de 1024 px

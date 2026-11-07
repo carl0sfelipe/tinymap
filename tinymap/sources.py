@@ -204,9 +204,32 @@ def overture_scene(run: Run, bbox: dict, water_ll: Path | None = None) -> Path:
     roads = overture_roads(box)
     water = []
     if water_ll and Path(water_ll).exists():
-        water = [{"rings": f["rings"], "holes": f.get("holes", [])} for f in json.loads(Path(water_ll).read_text())["features"]]
+        water = merge_water([{"rings": f["rings"], "holes": f.get("holes", [])}
+                             for f in json.loads(Path(water_ll).read_text())["features"]])
     scene = {"bbox": bbox, "buildings": buildings, "roads": roads, "green": [], "water": water}
     out = run.path("osm", "scene_ll.json")
     out.write_text(json.dumps(scene))
     print(f"maquete: {len(buildings)} prédios, {len(roads)} vias, {len(water)} águas ({time.time() - t0:.0f} s)")
+    return out
+
+
+def merge_water(feats: list[dict], gap_deg: float = 0.0002) -> list[dict]:
+    """Junta os polígonos de água e fecha as frestas entre eles. O OSM divide o Paraná na fronteira e as
+    bordas não se encostam: no render aparecia uma lente de chão no meio do rio (até ~40 m de largura)."""
+    from shapely.geometry import MultiPolygon, Polygon
+    from shapely.ops import unary_union
+    polys = []
+    for f in feats:
+        for ring in f["rings"]:
+            if len(ring) < 4:
+                continue
+            pg = Polygon([(lon, lat) for lat, lon in ring], [[(lon, lat) for lat, lon in h] for h in f.get("holes", []) if len(h) >= 4])
+            polys.append(pg.buffer(0))
+    u = unary_union(polys).buffer(gap_deg).buffer(-gap_deg * 0.8)  # fecha frestas, devolve ~4 m de margem
+    out = []
+    for pg in (u.geoms if isinstance(u, MultiPolygon) else [u]):
+        if pg.area < 1e-9:
+            continue
+        ll = lambda cs: [[lat, lon] for lon, lat in cs]  # noqa: E731
+        out.append({"rings": [ll(pg.exterior.coords)], "holes": [ll(i.coords) for i in pg.interiors]})
     return out

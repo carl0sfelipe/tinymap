@@ -46,13 +46,17 @@ landmarks:
 
 style:
   # O prompt diz COMO desenhar, não O QUE desenhar (lição do tiny.london).
+  # Testado no piloto (nov/2026) sobre a maquete com satélite: este prompt + true_cfg 2.5 + água no
+  # negativo dá estilo de jogo e mantém mata, terrenos e ruas no lugar; cfg 1 sai foto com contorno.
   prompt: >-
-    Redraw this orthographic 3D city render as crisp isometric pixel art in the style of
-    a late-90s city-builder game (SimCity 2000 era). Keep every building, street, tree and
-    river exactly where it is, with the same shape and height. Flat fills, hard 1-pixel
-    edges, a limited palette, clean dark outlines on rooftops, no photographic texture,
-    no blur, no text, no labels.
-  negative: "photo, blurry, noise, text, watermark, labels, people close-up"
+    Convert this 3D city model render into clean isometric pixel art, like a 1990s city-builder tile
+    map (SimCity 2000, Transport Tycoon). Pixel art only: every edge is a hard 1-pixel step, flat fills
+    from a small palette of about 32 colours, a dark 1-pixel outline around every roof and wall, simple
+    dithered shading, small pixel trees. Keep the layout identical: every building, road, park and river
+    stays exactly where it is, with the same footprint and height. Flat blue areas are rivers and stay
+    open water with small pixel-art ripples. No photographic texture, no painterly brush strokes, no
+    blur, no soft gradients, no text.
+  negative: "photo, photographic texture, blurry, noise, ponds, lakes, puddles, pools of water, canals, flooded streets, text, watermark, labels"
   # Professor dos pares de treino. 2511: Apache-2.0 (uso comercial ok). Qwen-Image-2.1: só não comercial.
   teacher_model: Qwen/Qwen-Image-2.1
   # Só para o professor (pares de treino): mais insistente no estilo. A frase de onde está o rio
@@ -71,8 +75,8 @@ generate:
   stride_px: 768
   block_px: 6144     # 24 GB: 6144 é confortável; o tamanho só afeta o cache em CPU
   margin_px: 1024    # contexto já pintado dos vizinhos, mantido fixo (pinning)
-  steps: 20
-  true_cfg: 1.0      # >1 dobra o custo; use 4.0 só se o estilo sair fraco
+  steps: 16
+  true_cfg: 2.5      # >1 dobra o custo; com 1.0 sai foto com contorno, com 4.0 vira tudo grama
   seed: 1234
 
 # Pontes com dado ao vivo (now.services /api/mapa/ponte.json). Extremidades aproximadas:
