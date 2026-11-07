@@ -55,6 +55,34 @@ Quanto mais prédios tiverem `building:levels` no OSM, melhor fica a maquete; d�
 você mesmo no openstreetmap.org (o `osm3d` informa quantos já têm altura). Áreas filmadas com
 drone (fotogrametria) entram depois como tileset próprio, por cima da maquete.
 
+## Mapa completo com a cidade real (o que gerou o mapa de nov/2026)
+
+A maquete do OSM sozinha não tem a cidade real (só prédios mapeados à mão e áreas lisas), e qualquer
+modelo inventa em cima dela. O fluxo que funcionou:
+
+```bash
+tinymap plan      regions/triplice-fronteira.yaml          # 0,4 m/px: 34.816 x 32.768 px, 183 shots
+tinymap osm       regions/triplice-fronteira.yaml --pilot  # água, lugares e fronteiras (região inteira)
+python -c "from tinymap import region as R; from tinymap.sources import overture_scene as o; \
+  r=R.load('regions/triplice-fronteira.yaml'); o(r, r.region['bbox'], r.dir/'osm'/'water_ll.json')"
+tinymap satellite regions/triplice-fronteira.yaml          # Google Map Tiles (GOOGLE_TILES_API_KEY no .env)
+CHROME_PATH=/usr/bin/chromium tinymap render regions/triplice-fronteira.yaml --workers 2
+modal run tinymap/modal_app.py::upload   --region regions/triplice-fronteira.yaml
+modal run tinymap/modal_app.py::generate --region regions/triplice-fronteira.yaml --gpus 10 --block 4096 --margin 512 --steps 12
+modal run tinymap/modal_app.py::download --region regions/triplice-fronteira.yaml
+tinymap site regions/triplice-fronteira.yaml && python -m http.server -d site 8080
+```
+
+- **Maquete**: prédios e ruas do Overture (OSM + Google Open Buildings + Microsoft ML), água do OSM juntada
+  e cortada em células (o earcut falhava no Paraná), satélite do Google no chão e nos telhados, rio em azul
+  e ruas em cinza pintados por cima.
+- **Estilo**: prompt de pixel art, `true_cfg 2.5`, "lagos, poças, canais" no negativo.
+- **Conserto automático**: depois de cada bloco, água inventada e terra no rio (comparando com o render)
+  são redesenhadas com uma dica tirada da cor embaixo (lavoura, mata ou cidade), só dentro da área do mapa.
+- **Modal**: no máximo 10 GPUs na conta; os blocos são divididos fixo por worker, há checkpoint depois da
+  pintura (sobrevive à preempção) e um worker assume blocos parados. `rerepair --ids ...` passa o conserto
+  de novo em blocos prontos.
+
 ## Pares de treino com revisão humana (human in the loop)
 
 O modelo base erra muito na maquete (inventa lago na mata, cidade no rio, ou copia a maquete), então
