@@ -42,7 +42,7 @@ def build(run: Run, version: str = "v1", quality: int = 90) -> None:
 
     v = run.view
     s = v["shot_px"]
-    black = pyvips.Image.black(s, s, bands=3)
+    black = (pyvips.Image.black(s, s, bands=3) + list(BG)).cast("uchar")  # fora da área: cor de fundo do site
     src = _masked(run)
     tiles = []
     for r in range(v["rows"]):
