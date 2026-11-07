@@ -50,13 +50,58 @@ def _render_bluish(ren: np.ndarray) -> np.ndarray:  # piscina, telhado azul de v
     return (b - r > 70) & (b > 140) & ~_render_water(ren)
 
 
-def fix(art: np.ndarray, ren: np.ndarray, area: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+def _render_maybe_water(ren: np.ndarray) -> np.ndarray:
+    """Água que o OSM não tem mas o satélite mostra: escura e lisa (açude, lagoa de chácara)."""
+    from scipy import ndimage as nd
+    g = ren.astype(np.float32).mean(-1)
+    smooth = nd.uniform_filter(np.abs(g - nd.uniform_filter(g, 5)), 9) < 6
+    return ((g < 75) & smooth) | _render_water(ren)
+
+
+def restyle_from_render(art: np.ndarray, ren: np.ndarray, hole: np.ndarray, ring: int = 96,
+                        exclude: np.ndarray | None = None) -> np.ndarray:
+    """Pinta o buraco a partir da maquete, com a "tradução" de cor que a própria arte usou em volta.
+
+    No anel em volta do buraco, cada cor da maquete (rua, grama, telhado, chão) aparece pintada de
+    algum jeito na arte; aqui isso vira uma tabela maquete → arte. Dentro do buraco, cada pixel da
+    maquete é traduzido pela tabela (cor mais parecida da maquete, se não houver exata). Ruas e
+    quintais continuam no lugar certo, porque é a maquete que diz onde estão. Determinístico."""
+    from scipy import ndimage as nd
+    if not hole.any():
+        return art
+    around = nd.binary_dilation(hole, iterations=ring) & ~hole
+    if exclude is not None:
+        around &= ~exclude
+    if around.sum() < 50:
+        around = ~hole
+    R = (ren[around] // 8).astype(np.int32)
+    A = art[around].astype(np.int32)
+    key = (R[:, 0] << 10) | (R[:, 1] << 5) | R[:, 2]
+    order = np.argsort(key, kind="stable")
+    key, A = key[order], A[order]
+    uk, start, counts = np.unique(key, return_index=True, return_counts=True)
+    table = np.stack([np.median(A[s:s + c], axis=0) for s, c in zip(start, counts)]).astype(np.int16)
+    ucol = np.stack([(uk >> 10) & 31, (uk >> 5) & 31, uk & 31], 1) * 8 + 4
+    hr = ren[hole].astype(np.int32)
+    out = art.copy()
+    best = np.empty(len(hr), np.int64)
+    for i in range(0, len(hr), 8192):
+        d = ((hr[i:i + 8192, None, :] - ucol[None]) ** 2 * np.array([3, 4, 2])).sum(-1)
+        best[i:i + 8192] = d.argmin(1)
+    out[hole] = table[best]
+    return out
+
+
+def fix(art: np.ndarray, ren: np.ndarray, area: np.ndarray | None = None,
+        lakes: bool = False) -> tuple[np.ndarray, dict]:
     """art, ren: HxWx3 int16. Devolve a arte consertada e estatísticas.
 
     Regras (validadas contra as edições à mão):
       1. mancha azul em cima de rua (>= 50% sobre a rua da maquete) -> asfalto, inteira
       2. mancha azul fora da rua, pequena (< LAKE_PX) ou fina (canal/risco, meia-largura <= 10 px) -> grama
       3. lago grande e compacto fora da rua -> fica (provavelmente existe; decisão humana)
+         com lakes=True: se embaixo, na maquete, não há água do OSM nem água escura e lisa no
+         satélite, é inventado -> preenchido continuando o que existe em volta
       4. verde azulado só na borda (até 4 px) das manchas consertadas -> mesma cor do conserto
     """
     from scipy import ndimage as nd
@@ -75,9 +120,30 @@ def fix(art: np.ndarray, ren: np.ndarray, area: np.ndarray | None = None) -> tup
     if area is not None:
         cand &= area
     lab, n = nd.label(cand)
-    st = {"manchas": 0, "rua_px": 0, "grama_px": 0, "puladas": 0, "lagos_mantidos": 0}
+    if lakes:
+        # 5. terra pintada no rio: onde a maquete tem rio (miolo, 6 px para dentro da margem) e a
+        #    arte não tem azul -> repinta o rio com a tradução de cor da própria arte em volta
+        # border_value=1: a borda do shot não é margem de rio (o rio continua no shot vizinho)
+        core = nd.binary_erosion(_render_water(ren), iterations=6, border_value=1)
+        dry = core & ~nd.binary_dilation(blue_all, iterations=1)
+        dry = nd.binary_dilation(nd.binary_erosion(dry, iterations=2, border_value=1), iterations=2)
+        if area is not None:
+            dry &= area
+        if dry.sum() >= MIN_PX * 4:
+            hole = nd.binary_dilation(dry, iterations=2) & nd.binary_dilation(_render_water(ren), iterations=1)
+            out = restyle_from_render(out, ren, hole, exclude=None)
+            rio_px = int(hole.sum())
+        else:
+            rio_px = 0
+    else:
+        rio_px = 0
+    st = {"manchas": 0, "rua_px": 0, "grama_px": 0, "puladas": 0, "lagos_mantidos": 0, "lagos_px": 0,
+          "rio_px": rio_px}
+    if rio_px:
+        st["manchas"] += 1
+    maybe = _render_maybe_water(ren) if lakes else None
     if not n:
-        return out, st
+        return out, st  # (pode ter consertado só o rio)
     sizes = nd.sum(cand, lab, range(1, n + 1))
     objs = nd.find_objects(lab)
     H, W = art.shape[:2]
@@ -85,7 +151,8 @@ def fix(art: np.ndarray, ren: np.ndarray, area: np.ndarray | None = None) -> tup
         if size < MIN_PX:
             continue
         ys, xs = sl
-        y0, y1, x0, x1 = max(0, ys.start - 8), min(H, ys.stop + 8), max(0, xs.start - 8), min(W, xs.stop + 8)
+        pad = 104 if lakes else 8  # lago grande: margem para o anel de cores em volta
+        y0, y1, x0, x1 = max(0, ys.start - pad), min(H, ys.stop + pad), max(0, xs.start - pad), min(W, xs.stop + pad)
         m = lab[y0:y1, x0:x1] == k
         if real[y0:y1, x0:x1][m].mean() > 0.05:        # encosta em rio/lago de verdade: é extensão dele, fica
             st["lagos_mantidos"] += 1
@@ -99,7 +166,19 @@ def fix(art: np.ndarray, ren: np.ndarray, area: np.ndarray | None = None) -> tup
         else:
             half = nd.distance_transform_edt(np.pad(m, 1))[1:-1, 1:-1].max()
             if size >= LAKE_PX and half > 10:
-                st["lagos_mantidos"] += 1
+                if not lakes or maybe[y0:y1, x0:x1][m].mean() > 0.15:
+                    st["lagos_mantidos"] += 1
+                    continue
+                # lago grande sem água embaixo: continua o entorno para dentro
+                hole = nd.binary_dilation(m & (blue[y0:y1, x0:x1] | teal[y0:y1, x0:x1]), iterations=3)
+                hole |= nd.binary_dilation(hole, iterations=3) & teal[y0:y1, x0:x1]
+                hole &= ~real[y0:y1, x0:x1]
+                if area is not None:
+                    hole &= area[y0:y1, x0:x1]
+                out[y0:y1, x0:x1] = restyle_from_render(out[y0:y1, x0:x1], ren[y0:y1, x0:x1], hole,
+                                                        exclude=(blue | teal)[y0:y1, x0:x1])
+                st["manchas"] += 1
+                st["lagos_px"] += int(hole.sum())
                 continue
             color, key = GRASS, "grama_px"
         m = m & (blue[y0:y1, x0:x1] | teal[y0:y1, x0:x1])                   # pinta só o que é água de fato
@@ -122,12 +201,15 @@ def area_mask(run, r: int, c: int) -> np.ndarray:
     return np.asarray(m) > 127
 
 
-def run_all(run, region_file: str, dry_run: bool = False, only: list[str] | None = None) -> dict:
+def run_all(run, region_file: str, dry_run: bool = False, only: list[str] | None = None,
+            lakes: bool = False) -> dict:
     """Roda em todos os shots com arte. Grava pelo histórico da oficina (desfazível) se não for dry_run."""
     from .mapedit import MapEdit
     ed = MapEdit(run, region_file)
     s = run.view["shot_px"]
-    tot = {"shots": 0, "manchas": 0, "rua_px": 0, "grama_px": 0, "puladas": 0, "lagos_mantidos": 0, "ids": []}
+    tot = {"shots": 0, "manchas": 0, "rua_px": 0, "grama_px": 0, "puladas": 0, "lagos_mantidos": 0, "lagos_px": 0,
+           "rio_px": 0,
+           "ids": []}
     for p in sorted((run.dir / "art").glob("r*_c*.png")):
         if only and p.stem not in only:
             continue
@@ -137,20 +219,24 @@ def run_all(run, region_file: str, dry_run: bool = False, only: list[str] | None
         alpha = np.asarray(im)[..., 3] > 0
         art = np.asarray(im.convert("RGB"), np.int16)
         ren = np.asarray(ed.rc.crop(box), np.int16)
-        new, st = fix(art, ren, area_mask(run, r, c) & alpha)
+        new, st = fix(art, ren, area_mask(run, r, c) & alpha, lakes=lakes)
+        tot["lagos_mantidos"] += st["lagos_mantidos"]
         if not st["manchas"]:
             continue
-        for k in ("manchas", "rua_px", "grama_px", "puladas", "lagos_mantidos"):
+        for k in ("manchas", "rua_px", "grama_px", "puladas", "lagos_px", "rio_px"):
             tot[k] += st[k]
         tot["shots"] += 1
-        print(f"{p.stem}: {st['manchas']} manchas · {st['rua_px']} px → rua · {st['grama_px']} px → grama", flush=True)
+        print(f"{p.stem}: {st['manchas']} manchas · {st['rua_px']} px → rua · {st['grama_px']} px → grama"
+              + (f" · {st['lagos_px']} px de lago → entorno" if st["lagos_px"] else "")
+              + (f" · {st['rio_px']} px de rio refeitos" if st["rio_px"] else ""), flush=True)
         if not dry_run:
             out = Image.fromarray(new.astype(np.uint8)).convert("RGBA")
             out.putalpha(Image.fromarray((alpha * 255).astype(np.uint8)))
             from io import BytesIO
             b = BytesIO()
             out.save(b, "PNG", compress_level=1)
-            tot["ids"].append(ed.apply(box, b.getvalue(), "auto: água inventada → rua/grama")["id"])
+            tot["ids"].append(ed.apply(box, b.getvalue(), "auto: água inventada → rua/grama"
+                                       + ("/entorno" if st["lagos_px"] else "") + ("/rio" if st["rio_px"] else ""))["id"])
     if not dry_run:
         (run.dir / "autofix_last.json").write_text(json.dumps(tot["ids"]))
     return tot

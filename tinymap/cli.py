@@ -12,7 +12,9 @@
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
-  tinymap autofix  <region.yaml> [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
+  tinymap demo                                   cidade de demonstração (runs/demo, regions/demo.yaml), sem GPU
+  tinymap polish   <region.yaml> [--grid --palette --seams] [--dry-run|--undo]  polimento determinístico, desfazível
+  tinymap autofix  <region.yaml> [--lakes] [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
   tinymap lab-freeze <region.yaml> --pairs pairs_v1 [--n 32]          congela o teste (32 recortes fora do treino)
   tinymap lab-train  <region.yaml> --pairs pairs_v1 --name r1 [--rank 32 --lr 1e-4 --steps 3000 --save-every 500]
@@ -62,7 +64,7 @@ def _overture(run, pilot: bool) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(prog="tinymap", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd")
-    ap.add_argument("region")
+    ap.add_argument("region", nargs="?", default="regions/demo.yaml")
     ap.add_argument("--pilot", action="store_true", help="use pilot_bbox (separate run folder)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--scale", type=float, default=0.125)
@@ -91,10 +93,18 @@ def main() -> None:
     ap.add_argument("--pinos")
     ap.add_argument("--precise", default="yes", choices=["yes", "no"])
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--undo", action="store_true", help="autofix: desfaz o último lote")
+    ap.add_argument("--undo", action="store_true", help="autofix/polish: desfaz o último lote")
+    ap.add_argument("--lakes", action="store_true", help="autofix: também lago grande sem água embaixo na maquete")
+    ap.add_argument("--grid", action="store_true", help="polish: grade de pixel")
+    ap.add_argument("--palette", action="store_true", help="polish: paleta do mapa")
+    ap.add_argument("--seams", action="store_true", help="polish: emendas entre blocos")
     ap.add_argument("--sat-only", action="store_true", help="render: só a foto do satélite (render_sat/)")
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args()
+    if a.cmd == "demo":
+        from .demo import build
+        build()
+        return
     run = R.load(a.region, pilot=a.pilot)
 
     if a.cmd == "plan":
@@ -140,12 +150,20 @@ def main() -> None:
     elif a.cmd == "sheets":
         from .teacher import contact_sheet
         print(contact_sheet(run.dir / a.out))
+    elif a.cmd == "polish":
+        from .polish import run_all as polish_all, undo_last as polish_undo
+        if a.undo:
+            print(f"{polish_undo(run, a.region)} edições desfeitas")
+        else:
+            todas = not (a.grid or a.palette or a.seams)
+            tot = polish_all(run, a.region, a.grid or todas, a.palette or todas, a.seams or todas, a.dry_run)
+            print({k: v for k, v in tot.items() if k != "ids"})
     elif a.cmd == "autofix":
         from .autofix import run_all, undo_last
         if a.undo:
             undo_last(run, a.region)
         else:
-            t = run_all(run, a.region, dry_run=a.dry_run)
+            t = run_all(run, a.region, dry_run=a.dry_run, lakes=a.lakes)
             print({k: v for k, v in t.items() if k != "ids"})
     elif a.cmd == "edit":
         from .mapedit import MapEdit, serve as serve_edit

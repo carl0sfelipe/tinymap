@@ -1,0 +1,23 @@
+name: demo
+title: Cidade demo
+source: osm
+center:
+  lat: -25.5097
+  lon: -54.611
+camera:
+  azimuth_deg: -15
+  elevation_deg: -45
+  target_height_m: 185
+  meters_per_px: 0.4
+  shot_px: 1024
+style:
+  prompt: Convert this 3D city model render into clean isometric pixel art.
+  negative: photo, blurry
+generate:
+  window_px: 1024
+  stride_px: 768
+  block_px: 2048
+  margin_px: 512
+  steps: 16
+  true_cfg: 2.5
+  seed: 1

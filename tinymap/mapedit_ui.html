@@ -97,6 +97,15 @@ textarea { width: 100%; min-height: 56px; padding: 7px; resize: vertical; }
 .list div { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 4px; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
 .list div:hover { border-color: var(--accent); background: var(--panel2); }
 .list .undone { opacity: .5; }
+.tag { font-size: 10px; font-weight: 600; color: var(--ok); border: 1px solid var(--ok); border-radius: 9px; padding: 0 6px; margin-left: 4px; vertical-align: middle; text-transform: none; letter-spacing: 0; }
+.health { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0 8px; }
+.health .m { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.health .m b { display: block; font-size: 20px; line-height: 1.1; }
+.health .m span { font-size: 11px; color: var(--muted); }
+.health .m.good b { color: var(--ok); } .health .m.warn b { color: var(--warn); } .health .m.bad b { color: var(--bad); }
+.health .score { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; }
+.health .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--panel3); overflow: hidden; }
+.health .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--bad), var(--warn), var(--ok)); }
 .note { padding: 9px 10px; border-radius: 7px; background: var(--panel2); color: var(--muted); font-size: 12px; margin: 6px 0; }
 .warn { color: var(--warn); }
 /* rodapé */
@@ -222,12 +231,42 @@ footer .spacer { flex: 1; }
     </div>
     <aside>
       <div id="tabs">
-        <button data-tab="sel" class="on">Exportar</button>
-        <button data-tab="imp">Importar</button>
+        <button data-tab="pol" class="on">Mapa</button>
         <button data-tab="prob">Defeitos</button>
+        <button data-tab="sel">Exportar</button>
+        <button data-tab="imp">Importar</button>
         <button data-tab="hist">Histórico</button>
       </div>
-      <div class="tab on" id="t-sel">
+      <div class="tab on" id="t-pol">
+        <h3>Saúde do mapa</h3>
+        <div id="health" class="health"><div class="sub">Clique em “Procurar defeitos” para medir.</div></div>
+        <div class="row"><button id="b-scan2">Procurar defeitos</button><span class="sub" id="scanst2"></span></div>
+        <h3>1 · Consertar e polir sem IA <span class="tag">sem GPU</span></h3>
+        <div class="note">Correções que não inventam nada, guiadas pela maquete: <b>lagoas e rio</b> repinta água inventada
+          e terra no rio com o que a maquete mostra embaixo; <b>grade</b> encaixa o pixel mole do modelo em pixel duro;
+          <b>paleta</b> junta tons quase iguais nas cores do mapa; <b>emendas</b> iguala a cor dos blocos de geração.
+          Tudo entra no histórico e pode ser desfeito.</div>
+        <div class="row">
+          <label><input type="checkbox" id="p-grid" checked> grade</label>
+          <label><input type="checkbox" id="p-pal" checked> paleta</label>
+          <label title="tamanho do pixel desenhado">pixel <select id="p-k"><option value="">auto</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+        </div>
+        <div class="row"><button id="b-polsel" disabled title="Prévia na área selecionada (⬚); compare com a barra antes/depois e aplique">Polir a área selecionada</button></div>
+        <div class="sub" id="polinfo"></div>
+        <div class="row" style="margin-top:8px"><label><input type="checkbox" id="p-seams" checked> emendas</label>
+          <label title="Antes de polir: lagoa sem água embaixo na maquete vira o que a maquete mostra; terra pintada no rio vira rio"><input type="checkbox" id="p-water" checked> lagoas e rio</label></div>
+        <div class="row"><button class="ok" id="b-polall">Consertar e polir o mapa inteiro</button></div>
+        <div class="sub" id="polall"></div>
+        <h3>2 · Consertar o que a IA inventou</h3>
+        <div class="note">Na aba <b>Defeitos</b>, clique num achado para ir até ele. Lagoa inventada: <b>🏝️</b> ou os botões
+          <b>Lago → rua / terreno</b>. Resto: ferramentas da esquerda.</div>
+        <h3>3 · Pedir à IA o que falta</h3>
+        <div class="note">Marque a área ⬚ e use <b>Exportar</b> (Gemini) ou, com GPU, a LoRA do laboratório. A volta entra em
+          <b>Importar</b>, alinhada e na paleta do mapa.</div>
+        <h3>4 · Publicar</h3>
+        <div class="note">Quando a saúde estiver boa, <b>Publicar no site</b> (canto de cima).</div>
+      </div>
+      <div class="tab" id="t-sel">
         <h3>Área selecionada</h3>
         <div id="selinfo" class="note">Use a ferramenta ⬚ (tecla S) e arraste no mapa. O tamanho aparece aqui, em pixels e em metros.</div>
         <h3>Referência de estilo ⭐</h3>
@@ -258,8 +297,9 @@ footer .spacer { flex: 1; }
         <div class="sub" id="impinfo"></div>
       </div>
       <div class="tab" id="t-prob">
-        <h3>Caçador de lagos</h3>
-        <div class="note">Compara a arte com a maquete e lista a água inventada e a terra pintada no rio, das maiores para as menores. Clique para ir até lá.</div>
+        <h3>Caçador de defeitos</h3>
+        <div class="note">Compara a arte com a maquete: água inventada, terra pintada no rio, emendas de cor entre blocos e
+          áreas ainda borradas. Clique para ir até lá.</div>
         <div class="row"><button id="b-scan">Procurar no mapa todo</button><span class="sub" id="scanst"></span></div>
         <div class="list" id="problist"></div>
       </div>
@@ -292,7 +332,7 @@ footer .spacer { flex: 1; }
 </div></div>
 <div id="welcome" class="overlay"><div class="card">
   <h2>Bem-vindo à oficina do mapa</h2>
-  <p class="sub">Três jeitos de consertar, do mais rápido ao mais caprichado:</p>
+  <p class="sub">Comece pela aba <b>Mapa</b> (à direita): ela mede a saúde do mapa e tem o <b>polimento sem IA</b>, que encaixa o pixel, a paleta e as emendas de uma vez. Depois, três jeitos de consertar o resto, do mais rápido ao mais caprichado:</p>
   <ol>
     <li><b>Um clique:</b> ligue <b>🛣️ Lago → rua</b> ou <b>🌳 Lago → terreno</b> no topo e clique no lago errado. Pronto, já vai para o mapa.</li>
     <li><b>À mão:</b> escolha uma ferramenta na esquerda (lápis, balde, árvore, prédio…). A barra de cima mostra só as opções dela, e o rodapé diz o que fazer. Termine com <b>Aplicar</b>.</li>
@@ -419,7 +459,7 @@ function paint() {
   if ($("#o-grid").checked) { ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = lw; for (let r = r0; r <= r1 + 1; r++) { ctx.beginPath(); ctx.moveTo(c0 * S, r * S); ctx.lineTo((c1 + 1) * S, r * S); ctx.stroke(); } for (let c = c0; c <= c1 + 1; c++) { ctx.beginPath(); ctx.moveTo(c * S, r0 * S); ctx.lineTo(c * S, (r1 + 1) * S); ctx.stroke(); } }
   if ($("#o-area").checked && M.area) { ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.setLineDash([8 / k, 6 / k]); ctx.lineWidth = 1.5 * lw; ctx.beginPath(); M.area.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
   if ($("#o-iso").checked && M.axes && k > 0.15) isoGrid(wx0, wy0, wx1, wy1, lw);
-  if ($("#o-prob").checked || $("#t-prob").classList.contains("on")) { ctx.lineWidth = 2 * lw; for (const p of problems) { ctx.strokeStyle = p.kind === "terra no rio" ? "rgba(255,170,0,.9)" : "rgba(0,200,255,.9)"; ctx.strokeRect(p.box[0], p.box[1], p.box[2] - p.box[0], p.box[3] - p.box[1]); } }
+  if ($("#o-prob").checked || $("#t-prob").classList.contains("on") || $("#t-pol").classList.contains("on")) { ctx.lineWidth = 2 * lw; for (const p of problems) { ctx.setLineDash(p.kind === "borrado" ? [12 * lw, 10 * lw] : []); ctx.strokeStyle = KIND_COLOR[p.kind] || "rgba(0,200,255,.9)"; ctx.strokeRect(p.box[0], p.box[1], p.box[2] - p.box[0], p.box[3] - p.box[1]); } }
   if (layer === "cur") { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = "#fff"; ctx.fillRect(cutX - 1, 0, 2, cv.height); ctx.setTransform(k, 0, 0, k, view.x, view.y); }
   for (const [b, col, name] of [[ref, "#ffb020", "referência"], [sel, "#ff4fd8", "seleção"]]) {
     if (!b) continue;
@@ -460,7 +500,7 @@ function artShare(b) { let tot = 0, art = 0; const S = M.shot; for (let r = Math
 function curMode() { const m = $("#mode").value; return m !== "auto" ? m : sel && artShare(sel) >= 0.5 ? "improve" : "generate"; }
 function selUI() {
   const has = !!sel;
-  ["#b-export", "#b-copy", "#b-img"].forEach((s) => ($(s).disabled = !has));
+  ["#b-export", "#b-copy", "#b-img", "#b-polsel"].forEach((s) => ($(s).disabled = !has));
   if (!has) { $("#selinfo").innerHTML = "Escolha a ferramenta ⬚ e arraste no mapa. O tamanho aparece aqui, em pixels e em metros."; $("#gmaps").textContent = ""; $("#prompt").value = ""; return; }
   const [w, h] = boxWH(sel), mw = (w * M.mpp).toFixed(0), mh = (h * M.mpp).toFixed(0), share = artShare(sel);
   const ll = toLL((sel[0] + sel[2]) / 2, (sel[1] + sel[3]) / 2);
@@ -1254,11 +1294,62 @@ document.querySelectorAll("[data-size]").forEach((b) => (b.onclick = () => {
 
 // ---------- defeitos, histórico, publicar, busca ----------
 $("#b-scan").onclick = async () => { await api("/api/problems", {}); pollScan(); };
+const KIND_ICON = { "água inventada": "🟦", "terra no rio": "🟧", "emenda": "🟪", "borrado": "🟨" };
+const KIND_COLOR = { "água inventada": "rgba(0,200,255,.9)", "terra no rio": "rgba(255,170,0,.9)", "emenda": "rgba(190,110,255,.95)", "borrado": "rgba(255,225,80,.8)" };
+function healthUI(status) {
+  if (status !== "pronto") { if (status === "procurando") $("#health").innerHTML = '<div class="sub">medindo…</div>'; return; }
+  const n = (k) => problems.filter((p) => p.kind === k).length;
+  const total = M.shots.length, comArte = artSet.size, ha = problems.filter((p) => p.kind === "água inventada").reduce((a, p) => a + p.area, 0) * M.mpp * M.mpp / 10000;
+  const pend = { agua: n("água inventada"), rio: n("terra no rio"), emenda: n("emenda"), mole: n("borrado") };
+  // nota 0-100: cobertura de arte pesa metade; cada tipo de defeito tira pontos, com teto
+  const cobertura = total ? comArte / total : 0;
+  const pen = Math.min(25, pend.agua * 2) + Math.min(10, pend.rio * 3) + Math.min(10, pend.emenda) + Math.min(15, (pend.mole / Math.max(1, comArte)) * 15);
+  const nota = Math.max(0, Math.round(cobertura * 50 + 50 - pen));
+  const cls = (v, a, b) => (v <= a ? "good" : v <= b ? "warn" : "bad");
+  $("#health").innerHTML = `<div class="score"><b style="font-size:26px">${nota}</b><div class="bar"><i style="width:${nota}%"></i></div><span class="sub">nota do mapa</span></div>
+    <div class="m ${cls(total - comArte, 0, total / 4)}" data-k=""><b>${comArte}/${total}</b><span>shots com arte</span></div>
+    <div class="m ${cls(pend.agua, 0, 5)}" data-k="água inventada"><b>${pend.agua}</b><span>água inventada · ${ha.toFixed(1)} ha</span></div>
+    <div class="m ${cls(pend.rio, 0, 2)}" data-k="terra no rio"><b>${pend.rio}</b><span>terra no rio</span></div>
+    <div class="m ${cls(pend.emenda, 0, 6)}" data-k="emenda"><b>${pend.emenda}</b><span>emendas de cor</span></div>
+    <div class="m ${cls(pend.mole, 0, 3)}" data-k="borrado"><b>${pend.mole}</b><span>shots borrados</span></div>`;
+}
+$("#health").onclick = (e) => { const m = e.target.closest("[data-k]"); if (!m || !m.dataset.k) return; showTab("prob"); const i = problems.findIndex((p) => p.kind === m.dataset.k); if (i >= 0) { const el = document.querySelector(`#problist [data-i="${i}"]`); el && el.scrollIntoView({ block: "center" }); el && el.click(); } draw(); };
+$("#b-scan2").onclick = async () => { await api("/api/problems", {}); pollScan(); };
+$("#b-polsel").onclick = async () => {
+  if (!sel) { info("Selecione uma área (⬚) primeiro."); return; }
+  const ops = [...($("#p-grid").checked ? ["grid"] : []), ...($("#p-pal").checked ? ["palette"] : [])];
+  if (!ops.length) { info("Ligue grade e/ou paleta."); return; }
+  if (!edit || edit.box.join() !== sel.join()) { if (!(await startEditBox(sel))) return; }
+  busy("polindo…");
+  try {
+    const j = await api("/api/polish", { box: sel, ops, k: $("#p-k").value ? +$("#p-k").value : null });
+    const im = await loadImg(j.png), c = document.createElement("canvas"); c.width = im.width; c.height = im.height; c.getContext("2d").drawImage(im, 0, 0);
+    edit.result = c; $("#i-split").value = 50; ebUI();
+    const g = j.info.grade, a = j.info.antes, d = j.info.depois;
+    $("#polinfo").innerHTML = `${g ? (g.k > 1 ? `pixel de <b>${g.k} px</b> encaixado · ` : "sem grade detectada · ") : ""}cores ${a.cores} → <b>${d.cores}</b> · mole ${Math.round(a.mole * 100)}% → <b>${Math.round(d.mole * 100)}%</b><br>Arraste a barra <b>antes ↔ depois</b> e use <b>Aplicar no mapa</b>.`;
+  } catch (e) { alert("Erro ao polir: " + e.message); }
+  busy(); draw();
+};
+$("#b-polall").onclick = async () => {
+  if (!confirm("Polir o mapa inteiro? Leva de segundos a alguns minutos. Cada shot alterado entra no histórico (dá para desfazer).")) return;
+  await api("/api/autopolish", { grid: $("#p-grid").checked, palette: $("#p-pal").checked, seams: $("#p-seams").checked, water: $("#p-water").checked });
+  $("#b-polall").disabled = true; pollPolish();
+};
+async function pollPolish() {
+  const j = await api("/api/autopolish");
+  $("#polall").innerHTML = (j.log || []).slice(-3).map((l) => `<div>${l.replace(/[<>&]/g, "")}</div>`).join("") +
+    (j.status === "pronto" ? `<div><b>Pronto:</b> ${j.n} edições no histórico.</div>` : j.status === "erro" ? "<div><b>Erro</b></div>" : "");
+  if (j.status === "rodando") { setTimeout(pollPolish, 1200); return; }
+  $("#b-polall").disabled = false;
+  const now = Date.now(); for (const k of M.art) { const [r, c] = k.slice(1).split("_c").map(Number); shotVer[`${r}_${c}`] = now; }
+  loadHist(); draw(); if (j.status === "pronto") { await api("/api/problems", {}); pollScan(); }
+}
 async function pollScan() {
   const j = await api("/api/problems"); problems = j.items || [];
   $("#scanst").textContent = j.status === "procurando" ? `procurando… ${j.done}/${j.total} shots` : j.status === "pronto" ? `${problems.length} achados` : "";
-  $("#problist").innerHTML = problems.map((p, i) => `<div data-i="${i}"><span>${p.kind === "terra no rio" ? "🟧" : "🟦"} ${p.kind}</span><span class="sub">${(p.area * M.mpp * M.mpp / 10000).toFixed(2)} ha</span></div>`).join("");
-  draw(); if (j.status === "procurando") setTimeout(pollScan, 1500);
+  $("#scanst2").textContent = $("#scanst").textContent;
+  $("#problist").innerHTML = problems.map((p, i) => `<div data-i="${i}"><span>${KIND_ICON[p.kind] || "•"} ${p.kind}</span><span class="sub">${p.kind === "emenda" ? `Δcor ${p.score}` : p.kind === "borrado" ? `${Math.round(p.score * 100)}% mole` : (p.area * M.mpp * M.mpp / 10000).toFixed(2) + " ha"}</span></div>`).join("");
+  healthUI(j.status); draw(); if (j.status === "procurando") setTimeout(pollScan, 1500);
 }
 $("#problist").onclick = (e) => { const d = e.target.closest("[data-i]"); if (!d) return; const p = problems[+d.dataset.i], pad = 192; const b = [snap(p.box[0] - pad), snap(p.box[1] - pad), snap(p.box[2] + pad), snap(p.box[3] + pad)]; setSel(b); goBox(b); };
 async function loadHist() {

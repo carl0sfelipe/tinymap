@@ -76,6 +76,7 @@ class MapEdit:
         self.rc = render_canvas(run)
         self.lock = threading.Lock()
         self.problems = {"status": "parado", "done": 0, "total": 0, "items": []}
+        self.auto = {"status": "parado", "log": []}
         self.pub: subprocess.Popen | None = None
         self._aff = None
 
@@ -135,6 +136,10 @@ class MapEdit:
                 shot.paste(part, (sx0 - c * s, sy0 - r * s))  # sem máscara: copia o alfa também
                 p = self.art / f"r{r}_c{c}.png"
                 tmp = p.with_name(f".{p.name}")
+                if shot.getextrema()[3][1] == 0:  # todo transparente (ex.: desfazer num shot sem arte):
+                    p.unlink(missing_ok=True)      # volta a não ter arte, em vez de um arquivo vazio
+                    touched.append((r, c))
+                    continue
                 # compress_level=1: ~5x mais rápido que o padrão (aplicar/desfazer levava 6-8 s)
                 if shot.getextrema()[3][0] == 255:  # opaco: salva RGB, como a geração
                     shot.convert("RGB").save(tmp, compress_level=1)
@@ -332,9 +337,63 @@ class MapEdit:
                     ok = not ok
                 j = i
             return ok
+        # emendas entre blocos de geração e shots ainda moles (polimento determinístico resolve)
+        from . import polish as P
+        for it in P.seam_items(self):
+            x0, y0, x1, y1 = it["box"]
+            items.append({"kind": "emenda", "area": int((x1 - x0) * (y1 - y0)), "score": it["score"], "box": it["box"]})
+        for p in shots:
+            r, c = (int(x[1:]) for x in p.stem.split("_"))
+            soft = P.softness(Image.open(p).convert("RGB").resize((512, 512), Image.NEAREST))
+            if soft > 0.3:
+                items.append({"kind": "borrado", "area": s * s, "score": round(soft, 2),
+                              "box": [c * s, r * s, (c + 1) * s, (r + 1) * s]})
         items = [it for it in items if inside((it["box"][0] + it["box"][2]) / 2, (it["box"][1] + it["box"][3]) / 2)]
-        items.sort(key=lambda x: -x["area"])
-        self.problems = {"status": "pronto", "done": len(shots), "total": len(shots), "items": items[:400]}
+        order = {"água inventada": 0, "terra no rio": 1, "emenda": 2, "borrado": 3}
+        items.sort(key=lambda x: (order.get(x["kind"], 9), -x["area"]))
+        self.problems = {"status": "pronto", "done": len(shots), "total": len(shots), "items": items[:600]}
+
+    # ---------- polimento determinístico ----------
+    def polish_box(self, box, ops: list[str], k: int | None = None) -> dict:
+        """Prévia do polimento de uma área (grade de pixel e/ou paleta do mapa). Não grava: a oficina
+        mostra antes/depois e o usuário aplica."""
+        from . import polish as P
+        art = self.crop("art", box)
+        alpha = art.getchannel("A")
+        base = self.crop("mixed", box)
+        pal = P.map_palette(self.run) if "palette" in ops else None
+        out, info = P.polish_image(base, ops, pal, k)
+        # onde não há arte (maquete), não inventa arte: devolve o mesmo pixel
+        out = Image.composite(out, base, alpha.point(lambda v: 255 if v else 0))
+        b = io.BytesIO()
+        out.save(b, "PNG")
+        return {"png": "data:image/png;base64," + base64.b64encode(b.getvalue()).decode(), "info": info}
+
+    def autopolish(self, grid: bool, palette: bool, seams: bool, water: bool = False) -> None:
+        """Conserto + polimento do mapa inteiro em segundo plano (desfazível pelo histórico).
+        water: antes, o autofix com lagos grandes e rio (água inventada e terra no rio pela maquete)."""
+        from . import autofix as A
+        from . import polish as P
+        self.auto = {"status": "rodando", "log": []}
+
+        class Log(io.StringIO):
+            def write(_, t):  # noqa: N805
+                if t.strip():
+                    self.auto["log"] = (self.auto["log"] + [t.strip()])[-12:]
+                return len(t)
+        import contextlib
+        try:
+            n = 0
+            with contextlib.redirect_stdout(Log()):
+                if water:
+                    fx = A.run_all(self.run, self.region_file, lakes=True)
+                    n += len(fx["ids"])
+                    print(f"água: {fx['manchas']} manchas consertadas, {fx['rio_px']} px de rio refeitos")
+                tot = P.run_all(self.run, self.region_file, grid, palette, seams)
+            self.auto = {"status": "pronto", "log": self.auto["log"],
+                         "resumo": {k: v for k, v in tot.items() if k != "ids"}, "n": n + len(tot["ids"])}
+        except Exception as e:  # noqa: BLE001
+            self.auto = {"status": "erro", "log": self.auto["log"] + [str(e)]}
 
     # ---------- lagos do OSM ----------
     def _edits(self) -> dict:
@@ -530,6 +589,8 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                     return self._json(ed.rerender_status())
                 if path == "/api/water_excluded":
                     return self._json(ed._excluded())
+                if path == "/api/autopolish":
+                    return self._json(ed.auto)
                 m = rx_tile.match(path)
                 if m:
                     b = ed.tile(m[1], int(m[2]), int(m[3]), int(m[4]))
@@ -567,6 +628,15 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                     return self._json({"ok": True})
                 if path == "/api/publish":
                     ed.publish()
+                    return self._json({"ok": True})
+                if path == "/api/polish":
+                    return self._json(ed.polish_box(tuple(body["box"]), body.get("ops", ["grid", "palette"]),
+                                                    body.get("k")))
+                if path == "/api/autopolish":
+                    if ed.auto.get("status") != "rodando":
+                        threading.Thread(target=ed.autopolish, args=(bool(body.get("grid", True)),
+                                         bool(body.get("palette", True)), bool(body.get("seams", True)),
+                                         bool(body.get("water", False))), daemon=True).start()
                     return self._json({"ok": True})
                 if path == "/api/water_save":
                     return self._json(ed.water_save(body.get("id") or None, int(body.get("ring", 0)), body["px"]))
