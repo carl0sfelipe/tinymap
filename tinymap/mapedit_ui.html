@@ -970,7 +970,7 @@ async function quickLake(w) {
     if (real > cnt * 0.5 && !confirm("Isso parece água que está no mapa de dados (rio/lago do OSM). Trocar mesmo assim só no desenho?\n(Para tirar dos dados também, use 🚱.)")) { edit = null; editUI(); return; }
     pushUndo();
     const m = dilate(reg, W, H, 3);
-    if (quick === "road") paintRoad(m); else fillTerrain(m, new Uint8Array(N));
+    if (quick === "road") paintRoad(m); else { const dd = edit.data.data; for (let q = 0; q < N; q++) if (m[q] && edit.hasArt[q]) { dd[q * 4] = 116; dd[q * 4 + 1] = 204; dd[q * 4 + 2] = 100; } }
     refresh(); busy("aplicando no mapa…");
     const label = quick === "road" ? "lago → rua" : "lago → terreno";
     const src = edit.buf; try {
@@ -990,32 +990,26 @@ async function dataWaterToLand(lake) {
   const [bw, bh] = boxWH(b);
   if (bw * bh > 4096 * 4096) { toast("Essa água é grande demais para trocar de uma vez (rio principal?). Use 🌊 para editar o contorno.", 6000); return; }
   busy("tirando a água dos dados…"); const res = await api("/api/water_delete", { id: lake.id });
-  // espera a maquete ser renderizada sem a água: só ela mostra as ruas que a água cobria
-  busy("renderizando a maquete sem a água…");
-  for (let i = 0; i < 180; i++) { await new Promise((r) => setTimeout(r, 1000)); if (!(await api("/api/rerender")).running) break; }
-  for (const [r, c] of res.shots) shotVer[`${r}_${c}`] = Date.now();
   await startEditBox(b); pushUndo();
-  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, rd = edit.renData.data;
+  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data;
   const core = new Uint8Array(N); rasterPoly(lake.px.map(([x, y]) => [x - b[0], y - b[1]]), core, W, H);
-  const reach = dilate(core, W, H, 48), m = dilate(core, W, H, 6);
-  for (let q = 0; q < N; q++) if (reach[q] && wetish(d, q * 4)) m[q] = 1;
-  const m2 = dilate(m, W, H, 2), rest = new Uint8Array(N); let nr = 0, ng = 0;
+  // todo azul ligado ao rio (até 48 px do contorno), com 2 px de borda
+  const reach = dilate(core, W, H, 48), blue = new Uint8Array(N), m = new Uint8Array(N), st = [];
+  for (let q = 0; q < N; q++) if (wetish(d, q * 4) && edit.hasArt[q]) blue[q] = 1;
+  for (let q = 0; q < N; q++) if (blue[q] && reach[q]) { m[q] = 1; st.push(q); }
+  while (st.length) { const q = st.pop(), x = q % W; for (const r of [x > 0 ? q - 1 : -1, x < W - 1 ? q + 1 : -1, q - W, q + W]) if (r >= 0 && r < N && blue[r] && !m[r]) { m[r] = 1; st.push(r); } }
+  const m2 = dilate(m, W, H, 2), c = quick === "road" ? [108, 116, 116] : [116, 204, 100]; let nr = 0, ng = 0;
+  for (let q = 0; q < N; q++) if (m2[q] && edit.hasArt[q]) { d[q * 4] = c[0]; d[q * 4 + 1] = c[1]; d[q * 4 + 2] = c[2]; quick === "road" ? nr++ : ng++; }
   const allRoad = quick === "road";
-  for (let q = 0; q < N; q++) {
-    if (!m2[q] || !edit.hasArt[q]) continue; const i = q * 4;
-    const road = allRoad || (Math.abs(rd[i] - rd[i + 1]) < 10 && Math.abs(rd[i + 1] - rd[i + 2]) < 12 && rd[i] > 100 && rd[i] < 160);
-    if (road) { d[i] = 108; d[i + 1] = 116; d[i + 2] = 116; nr++; } else { rest[q] = 1; ng++; }
-  }
-  if (ng) fillTerrain(rest, new Uint8Array(N));       // quintal/grama/árvore copiados do próprio bairro
   refresh(); busy("aplicando no mapa…");
   try {
     const label = allRoad ? "rio (dados) → rua" : "rio (dados) → terreno";
     const j = await api("/api/apply", { box: edit.box, png: editPNG(edit.buf), note: label });
     for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
     edit = null; editUI(); loadHist();
-    toast(`✓ ${lake.id} tirado dos dados: ${fmt(nr)} px viraram rua e ${fmt(ng)} px terreno do bairro. Ctrl+Z desfaz o desenho.`, 7000);
+    toast(`✓ ${lake.id} tirado dos dados: ${fmt(nr + ng)} px viraram ${allRoad ? "rua" : "verde"}. Ctrl+Z desfaz o desenho.`, 7000);
   } catch (e) { alert("Erro ao aplicar: " + e.message); }
-  busy(); draw();
+  busy(); draw(); pollRerender(res.shots);
 }
 // rua: cinza do asfalto da própria área (ou um cinza padrão) com borda escura de 1 px, no estilo do mapa
 // PNG da edição com transparência: pixel sem desenho que não foi mexido continua sem desenho
