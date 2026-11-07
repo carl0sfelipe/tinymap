@@ -24,6 +24,31 @@ from PIL import Image
 DTYPE = torch.bfloat16
 
 
+def latent_pin(pin_mask: np.ndarray, f: int, free_band_px: int = 64) -> np.ndarray:
+    """Máscara de pinning em células latentes (Pixel Singapore): uma célula só fica fixa se TODOS os
+    pixels dela são conhecidos, e uma faixa de `free_band_px` ao longo da borda do conhecido fica
+    livre, para o modelo costurar o novo com o velho em vez de bater numa parede."""
+    h, w = pin_mask.shape
+    cells = pin_mask[: h // f * f, : w // f * f].reshape(h // f, f, w // f, f).all(axis=(1, 3))
+    band = max(0, free_band_px // f)
+    if band:
+        # erosão: célula fixa só se todas as vizinhas num raio `band` também são conhecidas
+        # fora do recorte conta como conhecido: a borda da imagem não é divisa com pintura nova
+        pad = np.pad(cells, band, constant_values=True)
+        out = np.ones_like(cells)
+        for dy in range(-band, band + 1):
+            for dx in range(-band, band + 1):
+                out &= pad[band + dy: band + dy + cells.shape[0], band + dx: band + dx + cells.shape[1]]
+        cells = out
+    return cells
+
+
+def held_windows(cells: np.ndarray, wins: list[tuple[int, int]], lwin: int, f: int) -> set[tuple[int, int]]:
+    """Janelas (x, y em px) inteiramente dentro do que já está pintado: não chamam o transformer
+    (no Singapore, 112 de 581 janelas num bloco). O valor delas vem só do pinning."""
+    return {(x, y) for (x, y) in wins if cells[y // f: y // f + lwin, x // f: x // f + lwin].all()}
+
+
 @dataclass
 class ModelCfg:
     model_id: str = "Qwen/Qwen-Image-Edit-2511"
@@ -112,9 +137,14 @@ class QwenEdit:
     def joint(self, render: Image.Image, prompt: str, *, pinned: Image.Image | None = None,
               pin_mask: np.ndarray | None = None, steps: int = 20, true_cfg: float = 1.0,
               negative: str | None = None, window: int = 1024, stride: int = 768, seed: int = 0,
-              strength: float = 1.0, log=print) -> Image.Image:
+              strength: float = 1.0, log=print, ckpt: "Path | str | None" = None,
+              free_band_px: int = 64) -> Image.Image:
         """strength < 1: parte do próprio render com ruído parcial (SDEdit) em vez de ruído puro.
-        Com 0,4-0,6 o modelo troca a aparência mas não consegue mudar a planta (prédios, ruas, rio)."""
+        Com 0,4-0,6 o modelo troca a aparência mas não consegue mudar a planta (prédios, ruas, rio).
+
+        ckpt: arquivo onde o latente é salvo a cada passo; se existir, retoma do último passo salvo
+        (queda de luz, travamento, Ctrl-C na 3090 não jogam fora uma hora de bloco).
+        free_band_px: faixa ao longo da borda do já pintado que fica livre (não fixada)."""
         from diffusers.pipelines.qwenimage.pipeline_qwenimage_edit_plus import calculate_shift, retrieve_timesteps
 
         p, dev, f = self.p, self.dev, self.vsf
@@ -136,7 +166,13 @@ class QwenEdit:
         grids = [grid(0), grid(stride // 2)]
         wins = sorted(set(grids[0]) | set(grids[1]))
         neg = negative if true_cfg > 1 else None
-        log(f"  encoding {len(wins)} windows")
+        held: set = set()
+        cells = None
+        if pinned is not None and pin_mask is not None and pin_mask.any():
+            cells = latent_pin(pin_mask, f, free_band_px)
+            held = held_windows(cells, wins, lwin, f)
+            wins = [w for w in wins if w not in held]
+        log(f"  encoding {len(wins)} windows ({len(held)} já pintadas, puladas)")
         cache = {xy: self._cond(render.crop((xy[0], xy[1], xy[0] + window, xy[1] + window)), prompt, neg) for xy in wins}
 
         # tent weight: 0 at the window edge, flat across the middle half
@@ -151,9 +187,7 @@ class QwenEdit:
             for (x, y) in grid(0):
                 piece = pinned.crop((x, y, x + window, y + window))
                 x0[:, :, y // f:y // f + lwin, x // f:x // f + lwin] = self._encode(piece).float()
-            m = torch.tensor(pin_mask, dtype=torch.float32)[None, None]
-            m = -torch.nn.functional.max_pool2d(-m, f)  # a latent cell is pinned only if all its pixels are
-            mask = (m > 0.5).to(dev)
+            mask = torch.from_numpy(cells)[None, None].to(dev)
 
         sigmas = np.linspace(1.0, 1 / steps, steps)
         mu = calculate_shift((lwin // 2) ** 2, p.scheduler.config.get("base_image_seq_len", 256),
@@ -173,6 +207,13 @@ class QwenEdit:
             s0 = float(sig[k0])
             z = s0 * noise + (1 - s0) * xr  # ponto da trajetória flow-matching no nível de ruído s0
             log(f"  strength {strength}: começando no passo {k0 + 1}/{steps} (sigma {s0:.2f})")
+        if ckpt is not None:
+            ckpt = __import__("pathlib").Path(ckpt)
+            if ckpt.exists():
+                st = torch.load(ckpt, map_location=dev)
+                if tuple(st["z"].shape) == tuple(z.shape) and st.get("steps") == steps:
+                    z, noise, k0 = st["z"], st["noise"], st["k"] + 1
+                    log(f"  retomando do passo {k0 + 1}/{steps} ({ckpt.name})")
         p.scheduler.set_begin_index(k0)
         shapes = [[(1, lwin // 2, lwin // 2), (1, lwin // 2, lwin // 2)]]
         tr = p.transformer
@@ -183,6 +224,8 @@ class QwenEdit:
             acc = torch.zeros_like(z)
             wsum = torch.zeros((1, 1, lh, lw), device=dev)
             for (x, y) in grids[k % 2]:
+                if (x, y) in held:
+                    continue
                 lx, ly = x // f, y // f
                 pe, pm, npe, npm, il = (None if v is None else v.to(dev) for v in cache[(x, y)])
                 zl = z[:, :, ly:ly + lwin, lx:lx + lwin].to(DTYPE).contiguous()
@@ -199,10 +242,15 @@ class QwenEdit:
                 v = p._unpack_latents(v, window, window, f)[:, :, 0].float()
                 acc[:, :, ly:ly + lwin, lx:lx + lwin] += v * tent
                 wsum[:, :, ly:ly + lwin, lx:lx + lwin] += tent
-            z = p.scheduler.step(acc / wsum, t, z, return_dict=False)[0]
+            # células cobertas só por janelas puladas ficam sem velocidade; o pinning abaixo as preenche
+            z = p.scheduler.step(acc / wsum.clamp_min(1e-6), t, z, return_dict=False)[0]
             if x0 is not None:
                 s_next = float(p.scheduler.sigmas[k + 1])
                 z = torch.where(mask, s_next * noise + (1 - s_next) * x0, z)
+            if ckpt is not None:
+                tmp = ckpt.with_suffix(".tmp")
+                torch.save({"z": z, "noise": noise, "k": k, "steps": steps}, tmp)
+                tmp.replace(ckpt)
             log(f"  step {k + 1}/{steps}")
 
         # decode in overlapping windows and blend, so the VAE adds no seams either

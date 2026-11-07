@@ -84,3 +84,25 @@ Este repo não copia código dos repositórios sem licença; reimplementa as ide
 Imagens derivadas do Google Photorealistic 3D Tiles têm atribuição obrigatória e termos de uso do
 Google Maps Platform. O Qwen-Image-2.1-Turbo foi publicado com licença de pesquisa/avaliação;
 Qwen-Image-Edit-2511 é Apache-2.0. Confira antes de qualquer uso comercial.
+
+## Pixel Singapore (yadongxie.com, nov/2026) — o que veio para cá
+
+Mesma receita do tiny.london (Google 3D via Cesium, câmera 45°/15°, 0,25 m/px, shots de 2048 px,
+Qwen-Image-2.1-Turbo + LoRA de estilo, MultiDiffusion com janelas 1024/768 e grade deslocada 384 px,
+pinning RePaint), feito numa única RTX 5080 (pico de 14,8 GB): 4 blocos de 16.384 × 10.240 px em 6,6 h.
+
+Trazido para o `joint()`:
+- **Janelas já pintadas são puladas**: não codificam condicionamento nem chamam o transformer.
+- **Faixa livre de 64 px** ao longo da borda do que já está pintado, para costurar sem parede.
+- **Checkpoint do latente a cada passo** (`blocks/<id>.steps.pt`): travou, retoma do passo.
+- Viewer: pixel nítido a partir de 1,25x, suavizado abaixo (evita moiré ao afastar).
+
+Para depois (não implementado):
+- **Passe de altura** no render (altura em cm nos canais R e G): faixas de trânsito sobre o asfalto
+  real, carros escondidos atrás de prédios e árvores, copas que balançam, água animada só onde é
+  plana. É o que faria os carrinhos da ponte andarem no tabuleiro desenhado.
+- **Trânsito com IDM** (A 1,4, B 2,2, S0 2,2, T 1,3) e sprites de carro renderizados em 32 direções
+  com o mesmo sol — combinaria com a contagem real da câmera da ponte.
+- **Teste de saturação** para separar grama de água opaca (grama ≥ 0,6, água ≤ 0,4 na paleta deles):
+  calibrar nas nossas pinturas antes de mudar o detector de água inventada.
+- WebP q60 (189 MB para a cidade toda), tiles vazios não gravados e manifesto versionado no URL.

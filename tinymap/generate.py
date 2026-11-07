@@ -208,10 +208,12 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
         else:
             img = model.joint(render, f"{style['prompt']}", pinned=pinned, pin_mask=pin,
                               steps=g["steps"], true_cfg=g.get("true_cfg", 1.0), negative=style.get("negative"),
-                              window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"])
+                              window=win, stride=g["stride_px"], seed=g["seed"] + b["bx"] * 1000 + b["by"],
+                              ckpt=state / f"{b['id']}.steps.pt", free_band_px=g.get("free_band_px", 64))
             tmp = state / f".{b['id']}.painted.png"
             img.save(tmp)
             tmp.rename(painted)
+            (state / f"{b['id']}.steps.pt").unlink(missing_ok=True)  # a pintura salva substitui o latente
             checkpoint()
         if g.get("repair", True):
             from PIL import Image, ImageDraw

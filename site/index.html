@@ -11,6 +11,7 @@
   html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font-family:"Pixelify Sans", system-ui, sans-serif; }
   #map { position:fixed; inset:0; }
   #map canvas, #map img { image-rendering: pixelated; }
+  #map.longe canvas, #map.longe img { image-rendering: auto; }
   header { position:fixed; top:12px; left:12px; right:12px; display:flex; gap:8px; align-items:center; z-index:5; pointer-events:none; }
   header > * { pointer-events:auto; }
   h1 { margin:0; padding:6px 12px; background:var(--panel); border:2px solid var(--ink); font-size:20px; letter-spacing:.5px; }
@@ -77,6 +78,17 @@
     pl.setAttribute("stroke-width", "14"); pl.setAttribute("stroke-dasharray", "40 28");
     svg.appendChild(pl);
   }
+  // Pixel Singapore: pixel nítido a partir de 1,25x; abaixo disso, suavizado, senão a pixel art
+  // reduzida "cintila" (moiré) ao arrastar e afastar o zoom.
+  const mapa = document.getElementById("map");
+  const ajustarNitidez = () => {
+    const z = viewer.viewport.viewportToImageZoom(viewer.viewport.getZoom(true));
+    const nitido = z * window.devicePixelRatio >= 1.25;
+    mapa.classList.toggle("longe", !nitido);
+    if (viewer.drawer?.setImageSmoothingEnabled) viewer.drawer.setImageSmoothingEnabled(!nitido);
+  };
+  viewer.addHandler("zoom", ajustarNitidez);
+  viewer.addHandler("open", ajustarNitidez);
   viewer.addHandler("open", () => viewer.addOverlay({ element: svg, location: new OpenSeadragon.Rect(0, 0, 1, meta.height / W) }));
   document.getElementById("toggle").onclick = () => { svg.style.display = svg.style.display === "none" ? "block" : "none"; };
 
