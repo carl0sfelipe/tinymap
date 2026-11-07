@@ -64,12 +64,20 @@ footer { display: flex; gap: 14px; padding: 4px 10px; background: var(--panel); 
 footer a { color: var(--accent); }
 .note { padding: 8px; border-radius: 6px; background: var(--panel2); color: var(--muted); font-size: 12px; margin: 6px 0; }
 .warn { color: var(--warn); }
+.big-btn { font-size: 14px; font-weight: 600; padding: 7px 12px; border-width: 2px; }
+.big-btn.on { background: var(--warn); color: #1b1300; border-color: var(--warn); }
+#toast { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); background: rgba(20,23,27,.95); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 14px; display: none; z-index: 6; font-size: 14px; }
 </style>
 </head>
 <body>
 <div id="app">
   <header>
     <h1 id="title">tinymap · oficina</h1>
+    <div class="grp quick">
+      <button id="q-road" class="big-btn" title="Ligue e clique num lago: ele vira rua e já vai para o mapa (Ctrl+Z desfaz)">🛣️ Lago → rua</button>
+      <button id="q-land" class="big-btn" title="Ligue e clique num lago: ele vira terreno e já vai para o mapa (Ctrl+Z desfaz)">🌳 Lago → terreno</button>
+    </div>
     <div id="search"><input id="q" placeholder="Buscar lugar…" autocomplete="off"><div id="sres"></div></div>
     <div class="grp">
       <button id="l-art" class="on" title="Arte (onde não há, aparece a maquete)">Arte</button>
@@ -117,7 +125,7 @@ footer a { color: var(--accent); }
       <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
       <button id="b-fit" title="Ver o mapa inteiro (F)">⤢</button>
     </div>
-    <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div>
+    <div id="wrap"><canvas id="cv"></canvas><div id="busy"></div><div id="toast"></div>
       <div id="editbar"><span class="sub" id="ebinfo"></span><label class="sub">antes <input type="range" id="i-split" min="0" max="100" value="100"> depois</label>
         <button class="ok" id="b-apply">Aplicar no mapa</button><button id="b-cancel">Descartar</button></div></div>
     <aside>
@@ -404,6 +412,7 @@ cv.addEventListener("pointerdown", async (e) => {
   cv.setPointerCapture(e.pointerId);
   const w = evW(e);
   if (e.button === 1 && layer === "cur") { drag = { curtain: true }; return; }
+  if (e.button === 0 && quick && !spaceDown) { quickLake(w); return; }
   if (e.button !== 0 || spaceDown || tool === "pan") { drag = { pan: true, sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }; return; }
   if (tool === "sel" || tool === "ref") { drag = { box: true, x: snap(w[0]), y: snap(w[1]), which: tool }; return; }
   if (tool === "measure") { meas = [w[0], w[1], w[0], w[1]]; drag = { meas: true }; return; }
@@ -662,7 +671,7 @@ $("#pal").oncontextmenu = (e) => { e.preventDefault(); if (e.target.dataset.c) $
 $("#b-swap").onclick = () => { const a = $("#color").value; $("#color").value = $("#color2").value; $("#color2").value = a; };
 $("#bsize").oninput = () => { $("#bsv").textContent = $("#bsize").value; };
 $("#tol").oninput = () => { $("#tolv").textContent = $("#tol").value; };
-$("#b-undo").onclick = () => { if (!edit || !edit.undo.length) return; edit.result = null; edit.data = edit.undo.pop(); refresh(); };
+$("#b-undo").onclick = () => { if (!edit) { undoLastApplied(); return; } if (!edit.undo.length) return; edit.result = null; edit.data = edit.undo.pop(); refresh(); };
 
 // apagar lagoa: água inventada (azul ou turquesa fora do rio da maquete) vira o terreno em volta
 const wet = (d, i) => d[i + 2] - d[i] > 60 && d[i + 2] - d[i + 1] > 15;         // regra estrita (rio pintado na maquete)
@@ -715,6 +724,63 @@ function fillTerrain(mask, near, water = false) {
     for (const [p, q] of next) { d.set(d.subarray(q * 4, q * 4 + 4), p * 4); mask[p] = 0; left--; }
   }
 }
+// ---------- um clique: lago -> rua / terreno (já aplica no mapa) ----------
+let quick = null;
+function setQuick(m) { quick = quick === m ? null : m; $("#q-road").classList.toggle("on", quick === "road"); $("#q-land").classList.toggle("on", quick === "land"); cv.style.cursor = quick ? "crosshair" : (tool === "pan" ? "grab" : "crosshair"); toast(quick ? `Clique no lago que deve virar ${quick === "road" ? "rua" : "terreno"}. (Arraste com espaço ou o botão direito para mover o mapa.)` : ""); }
+$("#q-road").onclick = () => setQuick("road"); $("#q-land").onclick = () => setQuick("land");
+let toastT = 0;
+function toast(t, ms = 0) { const el = $("#toast"); el.textContent = t; el.style.display = t ? "block" : "none"; clearTimeout(toastT); if (t && ms) toastT = setTimeout(() => (el.style.display = "none"), ms); }
+async function quickLake(w) {
+  if (edit && !(await applyEdit())) return;
+  for (let half = 512; half <= 1536; half *= 2) {
+    const b = norm([snap(w[0] - half), snap(w[1] - half), snap(w[0] + half), snap(w[1] + half)]);
+    busy("procurando o lago…"); await startEditBox(b);
+    const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data;
+    let [lx, ly] = L(w), start = -1;
+    for (let r = 0; r <= 24 && start < 0; r += 2) for (let dy = -r; dy <= r && start < 0; dy++) for (let dx = -r; dx <= r; dx++) { const x = lx + dx, y = ly + dy; if (x >= 0 && y >= 0 && x < W && y < H && wetish(d, (y * W + x) * 4)) { start = y * W + x; break; } }
+    if (start < 0) { edit = null; editUI(); busy(); toast("Não achei água azul onde você clicou. Clique bem em cima do lago.", 4000); return; }
+    // mancha azul contígua a partir do clique
+    const reg = new Uint8Array(N), st = new Int32Array(N); let n = 0, cnt = 0, edge = false; st[n++] = start; reg[start] = 1;
+    while (n) { const p = st[--n], x = p % W; cnt++; if (x === 0 || x === W - 1 || p < W || p >= N - W) edge = true;
+      for (const q of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W]) if (q >= 0 && q < N && !reg[q] && wetish(d, q * 4)) { reg[q] = 1; st[n++] = q; } }
+    if (edge && half < 1536) { edit = null; continue; } // lago maior que a área: abre uma área maior
+    const rd = edit.renData.data; let real = 0; for (let p = 0; p < N; p++) if (reg[p] && wet(rd, p * 4)) real++;
+    busy();
+    if (real > cnt * 0.5 && !confirm("Isso parece água que está no mapa de dados (rio/lago do OSM). Trocar mesmo assim só no desenho?\n(Para tirar dos dados também, use 🚱.)")) { edit = null; editUI(); return; }
+    pushUndo();
+    const m = dilate(reg, W, H, 3);
+    if (quick === "road") paintRoad(m); else fillTerrain(m, new Uint8Array(N));
+    refresh(); busy("aplicando no mapa…");
+    const label = quick === "road" ? "lago → rua" : "lago → terreno";
+    const src = edit.buf; try {
+      const j = await api("/api/apply", { box: edit.box, png: src.toDataURL("image/png"), note: label });
+      for (const [r, c] of j.shots) { shotVer[`${r}_${c}`] = Date.now(); artSet.add(`r${r}_c${c}`); }
+      edit = null; editUI(); loadHist();
+      toast(`✓ ${label}: ${fmt(cnt)} px trocados. Ctrl+Z desfaz.`, 6000);
+    } catch (e) { alert("Erro ao aplicar: " + e.message); }
+    busy(); draw(); return;
+  }
+}
+// rua: cinza do asfalto da própria área (ou um cinza padrão) com borda escura de 1 px, no estilo do mapa
+function paintRoad(m) {
+  const W = edit.data.width, H = edit.data.height, N = W * H, d = edit.data.data, cnt = new Map();
+  for (let p = 0; p < N; p += 3) { const i = p * 4, r = d[i], g = d[i + 1], b = d[i + 2]; if (Math.abs(r - g) < 10 && Math.abs(g - b) < 12 && r > 60 && r < 150) { const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3); cnt.set(k, (cnt.get(k) || 0) + 1); } }
+  let road = [104, 104, 106]; if (cnt.size) { const k = [...cnt.entries()].sort((a, b) => b[1] - a[1])[0][0]; road = [((k >> 10) & 31) * 8 + 4, ((k >> 5) & 31) * 8 + 4, (k & 31) * 8 + 4]; }
+  const edgeC = road.map((v) => Math.round(v * 0.6));
+  for (let p = 0; p < N; p++) {
+    if (!m[p]) continue; const x = p % W, i = p * 4;
+    const border = x === 0 || x === W - 1 || p < W || p >= N - W || !m[p - 1] || !m[p + 1] || !m[p - W] || !m[p + W];
+    const c = border ? edgeC : road; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+  }
+}
+// Ctrl+Z sem edição aberta: desfaz a última troca aplicada no mapa
+async function undoLastApplied() {
+  const h = await api("/api/history"), last = h.find((x) => !x.undone);
+  if (!last) { toast("Nada para desfazer.", 3000); return; }
+  const j = await api("/api/undo", { id: last.id }); for (const [r, c] of j.shots) shotVer[`${r}_${c}`] = Date.now();
+  loadHist(); draw(); toast(`↶ desfeito: ${last.note || "edição"}`, 4000);
+}
+
 // ---------- editar lagos e rios (os dados) ----------
 async function waterDown(w, e) {
   const k = view.s * devicePixelRatio, thr = 8 / k;
@@ -962,7 +1028,7 @@ addEventListener("keydown", (e) => {
     k: () => setTool("lakedel"), j: () => setTool("water"), b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"), d: () => setTool("dither"), e: () => setTool("eraser"), u: () => setTool("iso"),
     l: () => $("#b-lake").click(), x: () => $("#b-swap").click(), f: fit, t: () => setLayer(layer === "cur" ? "art" : "cur"),
     "[": () => { $("#bsize").value = +$("#bsize").value - 1; $("#bsize").oninput(); }, "]": () => { $("#bsize").value = +$("#bsize").value + 1; $("#bsize").oninput(); },
-    escape: () => { meas = null; $("#f-meas").textContent = ""; if (wnew) { wnew = null; wUI(); } else if (lasso) lasso = null; else if (edit && edit.float) edit.float = null; else if (edit && edit.mask) { edit.mask = null; maskUI(); } draw(); } };
+    escape: () => { if (quick) { setQuick(quick); return; } meas = null; $("#f-meas").textContent = ""; if (wnew) { wnew = null; wUI(); } else if (lasso) lasso = null; else if (edit && edit.float) edit.float = null; else if (edit && edit.mask) { edit.mask = null; maskUI(); } draw(); } };
   if (m[k]) { e.preventDefault(); m[k](); }
 });
 addEventListener("keyup", (e) => { if (e.key === " ") spaceDown = false; if (e.key.toLowerCase() === "z" && lensOn) { lensOn = false; draw(); } });
