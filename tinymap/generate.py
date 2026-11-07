@@ -258,3 +258,31 @@ def worker(run: Run, model, only: list[str] | None = None, shard: tuple[int, int
                     paint(b, phase)
                 waited = 0
     print("all phases finished")
+
+
+def rerepair(run: Run, model, ids: list[str], shard: tuple[int, int] | None = None) -> None:
+    """Passa o conserto de novo em blocos já prontos (ex.: depois de melhorar as dicas), sem repintar."""
+    from PIL import Image, ImageDraw
+    g, style = run.region["generate"], run.region["style"]
+    W, H = run.view["canvas_px"]
+    M = g["margin_px"]
+    rc, ac = render_canvas(run), art_canvas(run)
+    todo = [b for b in blocks(run) if b["id"] in ids]
+    for b in (todo[shard[0]::shard[1]] if shard else todo):
+        x0, y0, x1, y1 = b["box"]
+        cx0, cy0 = max(0, x0 - M), max(0, y0 - M)
+        cx1, cy1 = min(W, x1 + M), min(H, y1 + M)
+        box = (cx0, cy0, cx1, cy1)
+        am = Image.new("L", (cx1 - cx0, cy1 - cy0), 0)
+        ImageDraw.Draw(am).polygon([(x - cx0, y - cy0) for x, y in run.view["area_px"]], fill=255)
+        print(f"[{b['id']}] reconserto", flush=True)
+        img = repair(model, rc.crop(box), ac.crop(box), style["prompt"], g, style, g["seed"] + 31 * b["bx"] + b["by"],
+                     area=np.asarray(am) > 127)
+        core = img.crop((x0 - cx0, y0 - cy0, x1 - cx0, y1 - cy0))
+        s = run.view["shot_px"]
+        if core.width % s or core.height % s:
+            pad = Image.new("RGB", (-(-core.width // s) * s, -(-core.height // s) * s), (0, 0, 0))
+            pad.paste(core, (0, 0))
+            core = pad
+        ac.write((x0, y0), core)
+        print(f"[{b['id']}] reconserto pronto", flush=True)

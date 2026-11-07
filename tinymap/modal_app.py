@@ -155,6 +155,41 @@ def worker(region: str, lora_name: str | None, worker_id: int, pilot: bool = Fal
     runs.commit()
 
 
+@app.function(image=image, gpu=GPU, volumes={"/runs": runs, "/hf": hf_cache}, timeout=12 * 3600)
+def _rework(region: str, ids: list[str], worker_id: int, n_workers: int, over: dict | None = None):
+    run = _setup(region, False)
+    run.region["generate"].update(over or {})
+    model = _model(None)
+    import tinymap.generate as G
+    from tinymap import region as R
+    orig_write = R.Canvas.write
+
+    def write(self, origin, img):
+        orig_write(self, origin, img)
+        runs.commit()
+
+    R.Canvas.write = write
+    runs.reload()
+    G.rerepair(run, model, ids, shard=(worker_id, n_workers))
+    runs.commit()
+
+
+@app.local_entrypoint()
+def rerepair(region: str = "regions/triplice-fronteira.yaml", ids: str = "", gpus: int = 4, block: int = 0,
+             margin: int = 0, steps: int = 0):
+    """Conserto de novo em blocos prontos: --ids b04_04,b02_02 (vazio = todos os prontos)."""
+    from tinymap import region as R
+    from tinymap.generate import blocks
+    run = R.load(region)
+    over = {k: v for k, v in (("block_px", block), ("margin_px", margin), ("steps", steps)) if v}
+    run.region["generate"].update(over)
+    todo = [x for x in ids.split(",") if x] or [b["id"] for b in blocks(run)]
+    calls = [_rework.spawn(region, todo, i, gpus, over) for i in range(gpus)]
+    for c in calls:
+        c.get()
+    print(f"reconserto de {len(todo)} blocos pronto; rode o entrypoint download")
+
+
 @app.local_entrypoint()
 def generate(region: str = "regions/triplice-fronteira.yaml", lora: str = "", gpus: int = 2, pilot: bool = False,
              block: int = 0, margin: int = 0, steps: int = 0):
