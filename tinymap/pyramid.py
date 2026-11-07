@@ -41,7 +41,12 @@ def build(run: Run, version: str = "v1", quality: int = 90) -> None:
                 "br": geo.to_px(aff, b["br_end"]["lat"], b["br_end"]["lon"]),
                 "py": geo.to_px(aff, b["py_end"]["lat"], b["py_end"]["lon"])}
                for b in run.region.get("bridges", [])]
+    sat = load("sat.json")
+    attribution = (f"Imagem derivada de satélite do Google ({sat['copyright']})" if sat.get("copyright")
+                   else "Imagem derivada de Google Photorealistic 3D Tiles")
+    attribution += " · Dados © OpenStreetMap contributors" + (" · Overture Maps" if run.region.get("buildings") == "overture" else "")
     meta = {"title": run.region.get("title", run.name), "width": v["canvas_px"][0], "height": v["canvas_px"][1],
+            "attribution": attribution,
             "dzi": f"maps/{run.name}/{version}/map.dzi", "places": places, "borders": borders,
             "geo": aff, "bridges": bridges, "live": run.region.get("now_services", {})}
     (ROOT / "site" / "maps" / run.name / "meta.json").write_text(json.dumps(meta))

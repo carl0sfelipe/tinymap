@@ -56,6 +56,7 @@
   const meta = await (await fetch(cfg.map)).json();
   document.title = meta.title;
   document.getElementById("title").textContent = meta.title;
+  if (meta.attribution) document.querySelector("footer").textContent = meta.attribution;
   const viewer = OpenSeadragon({
     id: "map", tileSources: meta.dzi, prefixUrl: "", showNavigationControl: false,
     maxZoomPixelRatio: 4, minZoomImageRatio: 0.6, visibilityRatio: 0.6, imageSmoothingEnabled: false,
