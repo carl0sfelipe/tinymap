@@ -213,9 +213,9 @@ def overture_scene(run: Run, bbox: dict, water_ll: Path | None = None) -> Path:
     return out
 
 
-def merge_water(feats: list[dict], gap_deg: float = 0.0002) -> list[dict]:
+def merge_water(feats: list[dict], gap_deg: float = 0.0006) -> list[dict]:
     """Junta os polígonos de água e fecha as frestas entre eles. O OSM divide o Paraná na fronteira e as
-    bordas não se encostam: no render aparecia uma lente de chão no meio do rio (até ~40 m de largura)."""
+    bordas não se encostam: no render aparecia uma lente de chão no meio do rio (~60 m de largura; fecha até ~120 m)."""
     from shapely.geometry import MultiPolygon, Polygon
     from shapely.ops import unary_union
     polys = []
@@ -226,8 +226,20 @@ def merge_water(feats: list[dict], gap_deg: float = 0.0002) -> list[dict]:
             pg = Polygon([(lon, lat) for lat, lon in ring], [[(lon, lat) for lat, lon in h] for h in f.get("holes", []) if len(h) >= 4])
             polys.append(pg.buffer(0))
     u = unary_union(polys).buffer(gap_deg).buffer(-gap_deg * 0.8)  # fecha frestas, devolve ~4 m de margem
+    # corta em células de ~500 m: o earcut do three.js falhava no Paraná inteiro (10 mil pontos + ilhas)
+    # e deixava lentes de chão no meio do rio; pedaços pequenos triangulam sem erro
+    from shapely.geometry import box as sbox
+    x0, y0, x1, y1 = u.bounds
+    cell, pieces = 0.005, []
+    xs = [x0 + i * cell for i in range(int((x1 - x0) / cell) + 2)]
+    ys = [y0 + j * cell for j in range(int((y1 - y0) / cell) + 2)]
+    for x in xs:
+        for y in ys:
+            c = u.intersection(sbox(x, y, x + cell, y + cell))
+            if not c.is_empty:
+                pieces += [g for g in getattr(c, "geoms", [c]) if g.geom_type == "Polygon"]
     out = []
-    for pg in (u.geoms if isinstance(u, MultiPolygon) else [u]):
+    for pg in pieces:
         if pg.area < 1e-9:
             continue
         ll = lambda cs: [[lat, lon] for lon, lat in cs]  # noqa: E731
