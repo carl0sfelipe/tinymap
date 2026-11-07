@@ -59,7 +59,14 @@ main { display: grid; grid-template-columns: 210px minmax(0, 1fr) 250px; grid-te
 .th .good { color: var(--ok); font-size: 10px; }
 .th .new { position: absolute; top: 4px; right: 4px; background: var(--warn); color: #000; font-size: 10px;
   padding: 0 4px; border-radius: 3px; }
-#stage { position: relative; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44px minmax(0, 1fr); }
+#stage { position: relative; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 44px minmax(0, 1fr) var(--mapw, 42%); }
+#stage.nomap { --mapw: 0px; }
+#map { display: grid; grid-template-rows: auto 1fr; min-height: 0; border-left: 1px solid var(--line); background: var(--panel); }
+#stage.nomap #map { display: none; }
+#mapbar { display: flex; gap: 6px; align-items: center; padding: 6px; flex-wrap: wrap; font-size: 12px; }
+#mapbar a { color: var(--accent); text-decoration: none; }
+#mapbar select { padding: 2px 4px; }
+#map iframe { width: 100%; height: 100%; border: 0; display: block; }
 #tools { display: flex; flex-direction: column; gap: 4px; padding: 6px 4px; border-right: 1px solid var(--line); background: var(--panel); }
 #tools button { width: 36px; height: 36px; padding: 0; font-size: 16px; }
 #wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
@@ -111,8 +118,18 @@ textarea { width: 100%; min-height: 64px; padding: 6px; resize: vertical; }
           <button id="b-undo" title="Desfazer (Ctrl+Z)">↶</button>
           <button id="b-redo" title="Refazer (Ctrl+Shift+Z)">↷</button>
           <button id="b-fit" title="Enquadrar (F)">⤢</button>
+          <button id="b-map" title="Mapa de satélite ao lado (M)">🌍</button>
         </div>
         <div id="wrap"><canvas id="cv"></canvas></div>
+        <div id="map">
+          <div id="mapbar">
+            <span class="sub">satélite (norte para cima)</span>
+            <select id="mapz" title="zoom"><option value="16">longe</option><option value="17" selected>médio</option>
+              <option value="18">perto</option><option value="19">bem perto</option></select>
+            <a id="earth" target="_blank" rel="noopener">Google Earth no mesmo ângulo ↗</a>
+          </div>
+          <iframe id="mapframe" referrerpolicy="no-referrer-when-downgrade" loading="lazy"></iframe>
+        </div>
         <div id="hud"></div>
       </div>
     </div>
@@ -148,7 +165,7 @@ textarea { width: 100%; min-height: 64px; padding: 6px; resize: vertical; }
       </section>
       <section class="help">
         <b>Atalhos</b>: 1–9 candidato · J/K próximo/anterior · B lápis · G balde · I conta-gotas · C clonar ·
-        espaço+arrastar move · roda do mouse dá zoom · [ ] tamanho · F enquadra.<br>
+        espaço+arrastar move · roda do mouse dá zoom · [ ] tamanho · F enquadra · M mapa de satélite.<br>
         <b>Clonar</b> pinta com os pixels de outro candidato ou da maquete no mesmo lugar: bom para juntar o
         melhor de cada versão.
       </section>
@@ -236,7 +253,7 @@ async function open(id) {
   if (f.art) src[id + "_art.png"] = toCanvas(await loadImage(img(id + "_art.png", f.art_t)), false);
   await setBase(pick || "render");
   seenCands[id] = new Set(f.cands.map((c) => c.name));
-  drawList(); drawStrip(); fit();
+  drawList(); drawStrip(); fit(); updateMap();
 }
 function toCanvas(image, smooth) {
   const c = document.createElement("canvas"); c.width = c.height = N;
@@ -286,6 +303,28 @@ function fillCloneSrc() {
   if ([...$("#clonesrc").options].some((o) => o.value === prev)) $("#clonesrc").value = prev;
 }
 function drawEmpty() { cur = null; $("#strip").innerHTML = `<div class="empty">Nenhum recorte com candidato. Gere um lote.</div>`; ctx.clearRect(0, 0, cv.width, cv.height); }
+
+// ---------- mapa de satélite ao lado ----------
+let mapKey = "";
+function updateMap() {
+  const f = frame(cur);
+  if (!f || !f.ll || $("#stage").classList.contains("nomap")) return;
+  const [lat, lon] = f.ll, z = $("#mapz").value, key = `${lat},${lon},${z}`;
+  if (key !== mapKey) { mapKey = key; $("#mapframe").src = `https://maps.google.com/maps?q=${lat},${lon}&t=k&z=${z}&output=embed`; }
+  // Earth: @lat,lon,alt a,distância d,fov y,rumo h,inclinação t — mesma inclinação/rumo da câmera do mapa
+  const cam = S.camera, dist = Math.round(f.m * 1.6);
+  $("#earth").href = `https://earth.google.com/web/@${lat},${lon},190a,${dist}d,35y,${(360 + cam.azimuth) % 360}h,${Math.abs(cam.elevation)}t,0r`;
+}
+function toggleMap() {
+  const st = $("#stage"); st.classList.toggle("nomap");
+  try { localStorage.setItem("tinymap-nomap", st.classList.contains("nomap") ? "1" : ""); } catch {}
+  $("#b-map").classList.toggle("on", !st.classList.contains("nomap"));
+  syncSize(); fit(); mapKey = ""; updateMap();
+}
+$("#b-map").onclick = toggleMap;
+$("#mapz").onchange = updateMap;
+try { if (localStorage.getItem("tinymap-nomap")) $("#stage").classList.add("nomap"); } catch {}
+$("#b-map").classList.toggle("on", !$("#stage").classList.contains("nomap"));
 
 // ---------- paleta ----------
 function palette() {
@@ -480,7 +519,7 @@ addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (/^[1-9]$/.test(k)) { const c = frame(cur)?.cands[+k - 1]; if (c) setBase(c.name); return; }
   const m = { b: () => setTool("pencil"), g: () => setTool("fill"), i: () => setTool("pick"), c: () => setTool("clone"),
-    h: () => setTool("pan"), f: fit, j: next, arrowright: next, k: prev, arrowleft: prev, a: approve,
+    h: () => setTool("pan"), f: fit, m: toggleMap, j: next, arrowright: next, k: prev, arrowleft: prev, a: approve,
     r: () => decide("redo"), d: () => decide("discard"),
     o: () => { $("#ov").value = +$("#ov").value ? 0 : 50; draw(); }, w: () => { $("#water").checked = !$("#water").checked; draw(); },
     "[": () => { $("#size").value = +$("#size").value - 1; $("#size").oninput(); },

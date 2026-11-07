@@ -48,3 +48,20 @@ def _terms(dl: float, dn: float) -> list[float]:
 def to_px(aff: dict, lat: float, lon: float) -> tuple[float, float]:
     t = _terms(lat - aff["origin"][0], lon - aff["origin"][1])
     return tuple(sum(c * v for c, v in zip(row, t)) for row in aff["a"])  # type: ignore[return-value]
+
+
+def to_ll(aff: dict, x: float, y: float, iters: int = 20) -> tuple[float, float]:
+    """Pixel do mapa -> (lat, lon) na altura do chão: inverte to_px por Newton (converge em ~3 passos)."""
+    lat, lon = aff["origin"]
+    for _ in range(iters):
+        px, py = to_px(aff, lat, lon)
+        ex, ey = x - px, y - py
+        if abs(ex) + abs(ey) < 1e-3:
+            break
+        d = 1e-5
+        ax, ay = to_px(aff, lat + d, lon)
+        bx, by = to_px(aff, lat, lon + d)
+        j = np.array([[(ax - px) / d, (bx - px) / d], [(ay - py) / d, (by - py) / d]])
+        dl, dn = np.linalg.solve(j, [ex, ey])
+        lat, lon = lat + dl, lon + dn
+    return float(lat), float(lon)

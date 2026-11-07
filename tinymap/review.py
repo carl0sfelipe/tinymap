@@ -41,6 +41,18 @@ class Review:
         self.lock = threading.Lock()
         self.gen: subprocess.Popen | None = None
         self.water = None
+        self._aff = None
+
+    def ll(self, box) -> list[float] | None:
+        """Centro do recorte em lat/lon (para o mapa de satélite ao lado)."""
+        from . import geo
+        try:
+            if self._aff is None:
+                self._aff = geo.load(self.run)
+            lat, lon = geo.to_ll(self._aff, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+            return [round(lat, 6), round(lon, 6)]
+        except Exception:  # noqa: BLE001  (sem geo_affine.json e sem node: segue sem mapa)
+            return None
 
     # ---------- estado ----------
     def _review(self) -> dict:
@@ -62,11 +74,15 @@ class Review:
             cands = [{"name": c.name, "fails": checks.get(c.name, {}).get("fails"), "m": checks.get(c.name, {}).get("m"),
                       "t": c.stat().st_mtime} for c in T.candidates(self.d, fid)]
             art = self.d / f"{fid}_art.png"
-            out.append({"id": fid, "box": fr["box"], "round": fr.get("round", 0), "status": r.get("status", "todo"),
+            out.append({"id": fid, "box": fr["box"], "ll": self.ll(fr["box"]),
+                        "m": round((fr["box"][2] - fr["box"][0]) * self.run.view["meters_per_px"]),
+                        "round": fr.get("round", 0), "status": r.get("status", "todo"),
                         "chosen": r.get("chosen"), "hint": r.get("hint", ""), "edited": r.get("edited", False),
                         "art": art.exists() and r.get("status") == "approved",
                         "art_t": art.stat().st_mtime if art.exists() else 0, "cands": cands})
+        cam = self.run.region["camera"]
         return {"pairs": self.out, "pilot": self.pilot, "frames": out, "gen": self.gen_status(),
+                "camera": {"azimuth": cam["azimuth_deg"], "elevation": cam["elevation_deg"]},
                 "cost": {"sec_per_image": SECONDS_PER_IMAGE, "h100_per_hour": H100_PER_HOUR, "load_s": LOAD_SECONDS}}
 
     def decide(self, fid: str, status: str, chosen: str | None = None, hint: str | None = None) -> None:
