@@ -10,6 +10,7 @@ config/examples/train_lora_qwen_image_edit*_24gb.yaml and keep the rest.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -19,17 +20,23 @@ from PIL import Image
 from .region import Run
 
 
-def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, rank: int) -> Path:
+def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, rank: int,
+          lr: float = 1e-4, save_every: int = 1000) -> Path:
     ds = run.path("lora", name, "dataset")
     tgt, ctl = ds / "target", ds / "control"
     for d in (tgt, ctl):
         shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
     prompt = run.region["style"]["prompt"]
-    n = 0
+    from .lab import test_ids
+    teste = test_ids(run)  # recortes do laboratório nunca entram no treino
+    n = fora = 0
     for pd in pairs_dirs:
         for art in sorted(Path(pd).glob("*_art.png")):
             fid = art.name[:-8]
+            if f"{Path(pd).name}/{fid}" in teste:
+                fora += 1
+                continue
             render = art.with_name(f"{fid}_render.png")
             if not render.exists():
                 continue
@@ -52,7 +59,7 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
                 "training_folder": str(run.path("lora", name, "out")),
                 "device": "cuda:0",
                 "network": {"type": "lora", "linear": rank, "linear_alpha": rank},
-                "save": {"dtype": "bf16", "save_every": 1000, "max_step_saves_to_keep": 4},
+                "save": {"dtype": "bf16", "save_every": save_every, "max_step_saves_to_keep": 20},
                 "datasets": [{
                     "folder_path": str(tgt), "control_path": str(ctl), "caption_ext": "txt",
                     "resolution": [512, 768, 1024], "cache_latents_to_disk": True,
@@ -60,7 +67,7 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
                 "train": {
                     "batch_size": 1, "steps": steps, "gradient_accumulation": 1,
                     "train_unet": True, "train_text_encoder": False, "gradient_checkpointing": True,
-                    "noise_scheduler": "flowmatch", "optimizer": "adamw8bit", "lr": 1e-4,
+                    "noise_scheduler": "flowmatch", "optimizer": "adamw8bit", "lr": lr,
                     "dtype": "bf16", "cache_text_embeddings": True, "timestep_type": "weighted",
                 },
                 "model": {
@@ -75,6 +82,8 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
     }
     cfg_path = run.path("lora", name, "train.yaml")
     cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
-    print(f"{n} pairs -> {ds}\nconfig -> {cfg_path}\n"
+    (cfg_path.parent / "lab.json").write_text(json.dumps(
+        {"base": base, "rank": rank, "lr": lr, "steps": steps, "pairs": n, "held_out": fora}))
+    print(f"{n} pairs ({fora} do teste ficaram de fora) -> {ds}\nconfig -> {cfg_path}\n"
           f"run:  cd ai-toolkit && CUDA_VISIBLE_DEVICES=0 python run.py {cfg_path}")
     return cfg_path

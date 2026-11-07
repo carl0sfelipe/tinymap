@@ -109,6 +109,38 @@ O botão **Gerar próximo lote** (com custo estimado) redesenha os "refazer" e, 
 os candidatos aparecem na página conforme chegam. Estado em `pairs_v1/review.json`, notas em
 `checks.json`. O Qwen-Image-2.1 tem licença Qwen RESEARCH (só uso não comercial).
 
+## Laboratório de LoRA (comparar treinos com nota, na 3090)
+
+Método de [marceloeduardo.com/pixel-lora-training](https://marceloeduardo.com/pixel-lora-training.html)
+(MiniDF, Brasília): todo treino pinta os mesmos 32 recortes de teste, que nunca entram no treino, e
+recebe uma nota objetiva em vez de "parece melhor".
+
+- **Nota**: LPIPS entre a pintura da LoRA e a pintura aprovada do professor (menor é melhor), com
+  média separada para recortes de detalhe e normais.
+- **Trava de cópia**: se a pintura ficar perto demais da maquete (LPIPS < `lab.copy_min`, padrão 0,30),
+  o run é descartado. O `lab-freeze` mede onde ficam as pinturas do próprio professor e avisa se a
+  trava estiver alta demais para os nossos dados.
+- **Trava de geometria**: distância de bordas até o render (ruas e prédios no lugar); descartado se
+  for pior que a do melhor run em mais de 0,03.
+- **Piso de ruído**: o run base repetido com outra semente mede quanto a nota varia à toa; um treino
+  só vira o novo melhor se bater o melhor por mais que isso.
+
+```bash
+pip install -e ".[lab]"
+tinymap lab-freeze regions/triplice-fronteira.yaml --pilot --pairs pairs_v1      # 1 vez só
+tinymap lab-eval   regions/triplice-fronteira.yaml --pilot --name base           # sem LoRA
+tinymap lab-eval   regions/triplice-fronteira.yaml --pilot --name base --seed 1  # piso de ruído
+tinymap lab-train  regions/triplice-fronteira.yaml --pilot --pairs pairs_v1 --name r1 --rank 32 --lr 1e-4 --steps 3000
+cd ../ai-toolkit && python run.py ../tinymap/runs/triplice-fronteira-pilot/lora/r1/train.yaml && cd -
+tinymap lab-eval   regions/triplice-fronteira.yaml --pilot --name r1 --lora runs/triplice-fronteira-pilot/lora/r1/out
+xdg-open runs/triplice-fronteira-pilot/lab/index.html
+```
+
+`--lora` com a pasta de saída avalia cada checkpoint (`r1@000001500`, ...), carregando o modelo
+uma vez só; assim aparece também o melhor número de passos. Cada avaliação na 3090 é 32 pinturas
+de 1024 px com as configurações da geração do mapa (passos, `true_cfg`, negativo). Uma regra por
+run: mude uma coisa só (rank, lr, passos, pares novos) e anote no nome.
+
 ## Passo a passo para a Tríplice Fronteira
 
 **1. Piloto pequeno (≈1,5 × 1,7 km no Marco das Três Fronteiras).** Valida a câmera e a cobertura 3D.

@@ -15,6 +15,9 @@ bridge = ["ultralytics>=8.3", "opencv-python-headless"]
 # `modal run tinymap/modal_app.py::...`: geração nas GPUs da Modal
 modal = ["modal>=1.0"]
 
+# `tinymap lab-*`: nota LPIPS dos treinos de LoRA (laboratório)
+lab = ["lpips>=0.1.4"]
+
 [project.scripts]
 tinymap = "tinymap.cli:main"
 

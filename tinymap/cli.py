@@ -14,6 +14,10 @@
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
   tinymap autofix  <region.yaml> [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
+  tinymap lab-freeze <region.yaml> --pairs pairs_v1 [--n 32]          congela o teste (32 recortes fora do treino)
+  tinymap lab-train  <region.yaml> --pairs pairs_v1 --name r1 [--rank 32 --lr 1e-4 --steps 3000 --save-every 500]
+  tinymap lab-eval   <region.yaml> --name base|r1 [--lora arquivo|pasta] [--seed 1] [--lora-scale 1]
+  tinymap lab-report <region.yaml>                                     lab/index.html (gráfico, folhas, runs)
   tinymap try      <region.yaml> --lora X.safetensors [--at lat,lon]   one block, to judge a LoRA
   tinymap generate <region.yaml> --lora X.safetensors [--gpu 0]       paint the map (one worker)
   tinymap unlock   <region.yaml>                  clear locks left by a crashed worker
@@ -70,6 +74,9 @@ def main() -> None:
     ap.add_argument("--name", default="v1")
     ap.add_argument("--steps", type=int, default=4000)
     ap.add_argument("--rank", type=int, default=32)
+    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--save-every", type=int, default=500)
+    ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--model", default="Qwen/Qwen-Image-Edit-2511")
     ap.add_argument("--lora")
     ap.add_argument("--lora-scale", type=float, default=1.0)
@@ -146,6 +153,32 @@ def main() -> None:
     elif a.cmd == "review":
         from .review import Review, serve
         serve(Review(run, a.out, a.region, a.pilot), a.host, a.port)
+    elif a.cmd == "lab-freeze":
+        from .lab import calibrate, freeze_testset
+        freeze_testset(run, [run.dir / p for p in a.pairs], n=a.n if a.n != 120 else 32, seed=a.seed)
+        calibrate(run)
+    elif a.cmd == "lab-train":
+        from .lab import test_ids
+        from .train import build
+        if not test_ids(run):
+            ap.error("congele o teste antes: tinymap lab-freeze ... --pairs ...")
+        build(run, [run.dir / p for p in a.pairs], a.name, a.model, a.steps, a.rank, lr=a.lr, save_every=a.save_every)
+    elif a.cmd == "lab-eval":
+        from .lab import LocalPainter, checkpoints, evaluate, report
+        painter = LocalPainter(run, model_id=a.model, quant=a.quant, gpu=a.gpu)
+        extra = {}
+        for cand in ([Path(a.lora), Path(a.lora).parent, Path(a.lora).parent.parent] if a.lora else []):
+            if (cand / "lab.json").exists():
+                extra = json.loads((cand / "lab.json").read_text())
+                break
+        for ck in checkpoints(a.lora):
+            cfg = {**painter.use(ck, a.lora_scale), **extra}
+            nome = a.name if not ck or len(checkpoints(a.lora)) == 1 else f"{a.name}@{Path(ck).stem.rsplit('_', 1)[-1]}"
+            evaluate(run, nome, painter, lora=ck, config=cfg, seed=a.seed)
+        print(report(run))
+    elif a.cmd == "lab-report":
+        from .lab import report
+        print(report(run))
     elif a.cmd == "train":
         from .train import build
         build(run, [run.dir / p for p in a.pairs], a.name, a.model, a.steps, a.rank)
