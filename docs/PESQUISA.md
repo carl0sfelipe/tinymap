@@ -156,3 +156,12 @@ Diretório isometriccities.com: 80 mapas, 27 novos em novembro. Brasil novo: Bra
 | Tiny Tirana | recorte na forma da cidade; cura de emenda com SDEdit | `polish --shape`; SDEdit pendente |
 | Isometric Warsaw | aviso preso ao local | site + `tinymap avisos` |
 | tiny.london | LoRA pública (`ktoyame/tiny-london-lora`) | só comparação no lab: licença não comercial |
+
+## Provedores de dados (08/11/2026)
+
+| Dado | Fonte | Uso no tinymap |
+|---|---|---|
+| Fotos de rua abertas | Mapillary (CC-BY-SA), KartaView | fichas de fachada (já no código) |
+| Altura de prédio no Sul Global | Google Open Buildings 2.5D Temporal (Earth Engine, 4 m, 2016-2023) | alturas da maquete na Tríplice Fronteira onde OSM/Overture não têm; pendente |
+| Base oficial de BH | BHMap / BHGEO da PBH (CC-BY) | nomes, lotes e equipamentos públicos para pinos e pontos de referência |
+| Relevo | Copernicus DEM GLO-30 | altura do chão por ponto de referência em cidade de morro (BH); pendente |

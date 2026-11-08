@@ -32,6 +32,17 @@ Municipal, Viaduto Santa Tereza, Praça da Estação, Savassi, Igreja de Lourdes
 foram projetados com a câmera e caem dentro do canvas. As coordenadas são aproximadas: `tinymap osm`
 traz as do OpenStreetMap.
 
+## Lançar rápido (antes que alguém faça)
+
+Verificado em 08/11/2026 às 10h30: nenhum mapa de BH no Isometric Cities (80 mapas), no Isometric
+Map Finder (48) nem nas buscas. Para chegar primeiro, lance o **piloto** como "Tiny BH: Centro" e
+amplie depois, na mesma URL:
+
+1. Dia 1: piloto (16 shots, Praça Sete → Praça da Liberdade) com o professor Lightning e a LoRA
+   base (`lab-eval --name base` já mostra se dá para pular o treino no lançamento).
+2. `tinymap site regions/belo-horizonte.yaml --pilot` e publicar: o anúncio sai com o centro.
+3. Dias 2-4: LoRA r1, mapa da fase 1 inteiro, republica por cima. Fase 2 (Pampulha) depois.
+
 ## Passo a passo (3090 local)
 
 ```bash
