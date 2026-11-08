@@ -106,6 +106,41 @@ export function buildOsmScene(view, data, sat = null, opts = {}) {
     push(color, g);
   }
 
+  // Grade de janelas de uma ficha de fachada (tinymap/fachada.py): janela escura em cada vão, um
+  // pouco à frente da parede; com loja, vitrine e toldo no térreo. Dado medido na foto, não inventado.
+  const WIN = "#26323d", AWNING = "#b8492e";
+  function quad(x1, y1, x2, y2, z0, z1, nx, ny, color) {
+    const o = 0.08, a = [x1 + nx * o, y1 + ny * o], c = [x2 + nx * o, y2 + ny * o];
+    const g = new BufferGeometry();
+    g.setAttribute("position", new Float32BufferAttribute([
+      a[0], a[1], z0, c[0], c[1], z0, c[0], c[1], z1, a[0], a[1], z0, c[0], c[1], z1, a[0], a[1], z1], 3));
+    g.computeVertexNormals();
+    push(color, g);
+  }
+  function windows(pts, base, h, win) {
+    const fh = win.floor_h || 3, sp = Math.max(1.2, win.spacing || 3);
+    const levels = Math.min(win.levels || Math.floor(h / fh), Math.floor((h - 0.3) / fh));
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1, z1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      const L = Math.hypot(x2 - x1, y2 - y1);
+      const n = Math.floor(L / sp);
+      if (n < 1) continue;
+      const ux = (x2 - x1) / L, uy = (y2 - y1) / L, nx = uy, ny = -ux, pad = (L - n * sp) / 2;
+      const z = z1 + base;
+      if (win.shop) {
+        quad(x1, y1, x2, y2, z + 0.3, z + fh * 0.75, nx, ny, WIN);
+        quad(x1, y1, x2, y2, z + fh * 0.75, z + fh * 0.95, nx * 2, ny * 2, AWNING);
+      }
+      for (let f = win.shop ? 1 : 0; f < levels; f++) {
+        for (let j = 0; j < n; j++) {
+          const c = pad + (j + 0.5) * sp, hw = sp * 0.27;
+          quad(x1 + ux * (c - hw), y1 + uy * (c - hw), x1 + ux * (c + hw), y1 + uy * (c + hw),
+            z + f * fh + fh * 0.3, z + f * fh + fh * 0.8, nx, ny, WIN);
+        }
+      }
+    }
+  }
+
   function building(b) {
     const k = hash(b.id ?? JSON.stringify(b.rings[0][0]));
     const roof = b.roof_colour || ROOFS[k % ROOFS.length];
@@ -131,6 +166,7 @@ export function buildOsmScene(view, data, sat = null, opts = {}) {
       gw.setAttribute("position", new Float32BufferAttribute(wallPos, 3));
       gw.computeVertexNormals();
       push(wall, gw);
+      if (b.win) windows(pts, base, h, b.win);
       const tris = ShapeUtils.triangulateShape(pts.map(([x, y]) => new Vector2(x, y)), []);
       if (sp) {
         // telhado com a foto do satélite no mesmo lugar (pedaço escolhido pelo centro do prédio)

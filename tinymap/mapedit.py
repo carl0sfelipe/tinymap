@@ -195,7 +195,13 @@ class MapEdit:
 
     def export(self, box, ref, mode: str, preset: str, text: str) -> bytes:
         w, h = box[2] - box[0], box[3] - box[1]
-        prompt = self.prompt(box, mode, preset, text, ref)
+        from .fachada import facts
+        fichas = [f for f in self.fichas_in(box) if f.get("status") == "confirmada"]
+        extra = " ".join(facts(f) for f in fichas)
+        if fichas:
+            extra += (" The extra images named foto_fachada are street photos of the facades: copy their windows,"
+                      " floors and colours, seen from this map's camera angle.")
+        prompt = self.prompt(box, mode, preset, (text + " " + extra).strip(), ref)
         render = self.crop("render", box)
         art = self.crop("mixed", box)
         pad = max(w, h) // 2
@@ -217,6 +223,10 @@ class MapEdit:
             if ref:
                 put("2_referencia_estilo.png" if mode == "generate" else "3_referencia_estilo.png",
                     self.crop("mixed", tuple(ref)))
+            for fc in fichas:
+                foto = self.run.dir / "fachadas" / f"{fc['id']}.jpg"
+                if foto.exists():
+                    put(f"foto_fachada_{fc['id']}.png", Image.open(foto))
             put("contexto.png", ctx.resize((min(1600, ctx.width), int(ctx.height * min(1600, ctx.width) / ctx.width))))
             f.writestr("prompt.txt", prompt + "\n")
             f.writestr("meta.json", json.dumps({"box": box, "ref": ref, "mode": mode, "preset": preset,
@@ -538,6 +548,51 @@ class MapEdit:
             running = True
         return {"running": running, "code": None if rr is None or running else rr.poll()}
 
+    # ---------- fachadas (foto da rua -> ficha -> janelas na maquete) ----------
+    def fichas_in(self, box) -> list[dict]:
+        from .fachada import Fichas
+        out = []
+        for f in Fichas(self.run).all():
+            x, y = self.px(f["lat"], f["lon"])
+            if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
+                out.append(f)
+        return out
+
+    def px(self, lat, lon):
+        from . import geo
+        return geo.to_px(self.aff(), lat, lon)
+
+    def fachada_foto(self, x: float, y: float, png: bytes, fonte: str = "foto") -> dict:
+        from .fachada import Fichas
+        lat, lon = self.ll(x, y)
+        return Fichas(self.run).add_photo(lat, lon, Image.open(io.BytesIO(png)), fonte, {"x": x, "y": y})
+
+    def fachada_buscar(self, x: float, y: float, fonte: str) -> dict:
+        from .fachada import fetch
+        lat, lon = self.ll(x, y)
+        f = fetch(self.run, lat, lon, fonte)
+        f["x"], f["y"] = x, y
+        from .fachada import Fichas
+        return Fichas(self.run).save(f)
+
+    def fachada_salvar(self, f: dict) -> dict:
+        from .fachada import Fichas
+        fs = Fichas(self.run)
+        old = fs.get(f["id"]) or {}
+        keep = {k: f[k] for k in ("levels", "cols", "wall", "shop", "floor_h", "status") if k in f}
+        return fs.save({**old, **keep})
+
+    def fachada_aplicar(self) -> dict:
+        """Fichas confirmadas -> maquete. Com `source: osm`, refaz o render (janelas desenhadas)."""
+        from .fachada import apply_to_scene
+        if not self.run.path("osm", "scene_ll.json").exists():
+            return {"predios": 0, "render": False, "nota": "região sem maquete OSM: a ficha vai como referência à IA"}
+        n = apply_to_scene(self.run)
+        osm = self.run.region.get("source") == "osm"
+        if n and osm:
+            self.rerender()
+        return {"predios": n, "render": bool(n and osm)}
+
     # ---------- publicar ----------
     def publish(self) -> None:
         if self.pub is not None and self.pub.poll() is None:
@@ -616,6 +671,12 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                     return self._json(ed._excluded())
                 if path == "/api/autopolish":
                     return self._json(ed.auto)
+                if path == "/api/fachadas":
+                    from .fachada import Fichas
+                    return self._json(Fichas(ed.run).all())
+                if path.startswith("/fachadas/") and path.endswith(".jpg"):
+                    fp = ed.run.dir / "fachadas" / Path(path).name
+                    return self._send(200, fp.read_bytes(), "image/jpeg") if fp.exists() else self._send(404, b"", "text/plain")
                 m = rx_tile.match(path)
                 if m:
                     b = ed.tile(m[1], int(m[2]), int(m[3]), int(m[4]))
@@ -654,6 +715,15 @@ def serve(ed: MapEdit, host: str, port: int) -> None:
                 if path == "/api/publish":
                     ed.publish()
                     return self._json({"ok": True})
+                if path == "/api/fachada/foto":
+                    png = base64.b64decode(body["image"].split(",")[-1])
+                    return self._json(ed.fachada_foto(float(body["x"]), float(body["y"]), png, body.get("fonte", "foto")))
+                if path == "/api/fachada/buscar":
+                    return self._json(ed.fachada_buscar(float(body["x"]), float(body["y"]), body["fonte"]))
+                if path == "/api/fachada/salvar":
+                    return self._json(ed.fachada_salvar(body))
+                if path == "/api/fachada/aplicar":
+                    return self._json(ed.fachada_aplicar())
                 if path == "/api/polish":
                     return self._json(ed.polish_box(tuple(body["box"]), body.get("ops", ["grid", "palette"]),
                                                     body.get("k")))

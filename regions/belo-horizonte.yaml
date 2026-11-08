@@ -84,3 +84,8 @@ generate:
 # Sem pontes com dado ao vivo por enquanto. Candidatos a camada ao vivo: BHTrans (ônibus),
 # metrô, Mineirão em dia de jogo (fase 2).
 bridges: []
+
+# Fichas de fachada (tinymap/fachada.py, aba Fachada do estúdio). Foto sua ou Mapillary: sem custo.
+# Street View: 0 = desligado; ponha um teto de imagens pagas por mês para ligar o botão.
+fachada:
+  streetview_max_mes: 0

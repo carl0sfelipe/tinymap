@@ -91,3 +91,8 @@ bridges:
 now_services:
   pinos: https://now.services/api/mapa/pinos.json
   ponte: https://now.services/api/mapa/ponte.json
+
+# Fichas de fachada (tinymap/fachada.py, aba Fachada do estúdio). Foto sua ou Mapillary: sem custo.
+# Street View: 0 = desligado; ponha um teto de imagens pagas por mês para ligar o botão.
+fachada:
+  streetview_max_mes: 0

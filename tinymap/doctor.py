@@ -94,6 +94,11 @@ def check(region: dict | None = None) -> int:
                      "GOOGLE_TILES_API_KEY (Map Tiles API) ou CESIUM_ION_TOKEN no .env"))
     ai = ROOT.parent / "ai-toolkit"
     rows.append(("OK" if (ai / "run.py").exists() else "AVISO", "ai-toolkit", f"treino da LoRA ({ai})"))
+    fac = (region or {}).get("fachada", {})
+    rows.append(("OK" if env.get("MAPILLARY_TOKEN") else "AVISO", "MAPILLARY_TOKEN", "fachadas: fotos de rua abertas (opcional)"))
+    if int(fac.get("streetview_max_mes", 0)) > 0:
+        rows.append(("OK" if env.get("GOOGLE_MAPS_API_KEY") or env.get("GOOGLE_TILES_API_KEY") else "FALTA",
+                     "chave do Street View", "GOOGLE_MAPS_API_KEY com a Street View Static API ativada"))
     hf = env.get("HF_TOKEN")
     rows.append(("OK" if hf else "AVISO", "HF_TOKEN", "downloads do Hugging Face mais rápidos e sem limite"))
 

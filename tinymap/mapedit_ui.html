@@ -235,6 +235,7 @@ footer .spacer { flex: 1; }
         <button data-tab="prob">Defeitos</button>
         <button data-tab="sel">Exportar</button>
         <button data-tab="imp">Importar</button>
+        <button data-tab="fac">Fachada</button>
         <button data-tab="hist">Histórico</button>
       </div>
       <div class="tab on" id="t-pol">
@@ -302,6 +303,30 @@ footer .spacer { flex: 1; }
           áreas ainda borradas. Clique para ir até lá.</div>
         <div class="row"><button id="b-scan">Procurar no mapa todo</button><span class="sub" id="scanst"></span></div>
         <div class="list" id="problist"></div>
+      </div>
+      <div class="tab" id="t-fac">
+        <h3>Fachada pela foto da rua</h3>
+        <div class="note">Prédio alucinado? Marque-o com ⬚ e traga uma foto da fachada. A foto vira uma <b>ficha</b>
+          (andares, janelas por andar, cor, loja no térreo) que você confirma. Na maquete OSM, a ficha desenha as
+          janelas de verdade; com 3D do Google, a ficha e a foto vão junto quando você pede à IA (Exportar).</div>
+        <div class="row"><a id="fac-sv" target="_blank" rel="noopener" class="sub"></a></div>
+        <div class="row"><label class="sub">foto sua ou print (ou cole com Ctrl+V nesta aba) <input type="file" id="fac-file" accept="image/*"></label></div>
+        <div class="row"><button id="fac-map" title="Fotos de rua abertas (MAPILLARY_TOKEN no .env)">Buscar no Mapillary</button>
+          <button id="fac-gsv" title="Street View Static API, com teto mensal no YAML (fachada.streetview_max_mes)">Buscar no Street View</button></div>
+        <div id="fac-ed" style="display:none">
+          <img id="fac-img" alt="foto da fachada" style="width:100%;margin-top:6px;border:1px solid #444">
+          <div class="sub" id="fac-src"></div>
+          <div class="row"><label>andares <input type="number" id="fac-lv" min="1" max="80" style="width:56px"></label>
+            <label>janelas/andar <input type="number" id="fac-cols" min="0" max="60" style="width:56px"></label></div>
+          <div class="row"><label>pé-direito m <input type="number" id="fac-fh" step="0.1" min="2.4" max="6" value="3" style="width:56px"></label>
+            <label>parede <input type="color" id="fac-wall"></label>
+            <label><input type="checkbox" id="fac-shop"> loja no térreo</label></div>
+          <div class="row"><button class="ok" id="fac-ok">Confirmar ficha</button></div>
+        </div>
+        <h3>Fichas</h3>
+        <div class="list" id="fac-list"></div>
+        <div class="row"><button class="ok" id="fac-apply">Levar fichas confirmadas para a maquete</button></div>
+        <div class="sub" id="fac-st"></div>
       </div>
       <div class="tab" id="t-hist">
         <h3>Histórico de edições</h3>
@@ -1434,6 +1459,57 @@ try { if (!localStorage.getItem("tinymap-welcome")) $("#welcome").classList.add(
   api("/api/palette").then((p) => { palette = p; palUI(); }).catch(() => {});  // 1ª vez é lenta: em segundo plano
   const pr = await api("/api/problems"); if (pr.items?.length) { problems = pr.items; pollScan(); }
 })();
+
+// ── fachadas ──
+let fac = null;
+const facCenter = () => sel ? [(sel[0] + sel[2]) / 2, (sel[1] + sel[3]) / 2] : null;
+function facShow(f) {
+  fac = f; $("#fac-ed").style.display = f ? "block" : "none"; if (!f) return;
+  $("#fac-img").src = `/fachadas/${f.id}.jpg?${Date.now()}`;
+  $("#fac-src").textContent = `${f.fonte}${f.atribuicao ? " · " + f.atribuicao : ""}${f.heading != null ? ` · rumo ${f.heading}°, ${f.dist_m} m` : ""} · ${f.status}${f.confianca != null ? ` · sugestão ${Math.round(f.confianca * 100)}%` : ""}`;
+  $("#fac-lv").value = f.levels || ""; $("#fac-cols").value = f.cols || ""; $("#fac-fh").value = f.floor_h || 3;
+  $("#fac-wall").value = f.wall || "#c8c0b0"; $("#fac-shop").checked = !!f.shop;
+}
+async function facList() {
+  const all = await api("/api/fachadas");
+  $("#fac-list").innerHTML = all.map((f) => `<div data-f="${f.id}"><span>${f.status === "confirmada" ? "✅" : "📝"} ${f.levels || "?"} andares × ${f.cols || "?"}</span><span class="sub">${f.fonte}</span></div>`).join("") || `<div class="sub">nenhuma ainda</div>`;
+  $("#fac-list").onclick = (e) => { const d = e.target.closest("[data-f]"); if (d) facShow(all.find((f) => f.id === d.dataset.f)); };
+}
+function facSV() {
+  const c = facCenter(), ll = c && toLL(c[0], c[1]);
+  if (ll) { $("#fac-sv").href = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${ll[0]},${ll[1]}`; $("#fac-sv").textContent = "abrir o Street View aqui ↗ (tire um print e cole)"; }
+  else $("#fac-sv").textContent = "marque o prédio com ⬚";
+}
+async function facUpload(file) {
+  const c = facCenter(); if (!c) { info("Marque o prédio com ⬚ primeiro."); return; }
+  const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); });
+  busy("lendo a fachada…");
+  try { facShow(await api("/api/fachada/foto", { x: c[0], y: c[1], image: data, fonte: "foto" })); facList(); } catch (e) { info(e.message); } finally { busy(); }
+}
+$("#fac-file").onchange = (e) => e.target.files[0] && facUpload(e.target.files[0]);
+document.addEventListener("paste", (e) => {
+  if (!$("#t-fac").classList.contains("on")) return;
+  const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (it) { e.stopImmediatePropagation(); e.preventDefault(); facUpload(it.getAsFile()); }
+}, true);
+for (const [btn, fonte] of [["#fac-map", "mapillary"], ["#fac-gsv", "streetview"]]) {
+  $(btn).onclick = async () => {
+    const c = facCenter(); if (!c) { info("Marque o prédio com ⬚ primeiro."); return; }
+    busy("buscando foto…");
+    try { facShow(await api("/api/fachada/buscar", { x: c[0], y: c[1], fonte })); facList(); } catch (e) { info(e.message); } finally { busy(); }
+  };
+}
+$("#fac-ok").onclick = async () => {
+  if (!fac) return;
+  facShow(await api("/api/fachada/salvar", { id: fac.id, levels: +$("#fac-lv").value || 0, cols: +$("#fac-cols").value || 0,
+    floor_h: +$("#fac-fh").value || 3, wall: $("#fac-wall").value, shop: $("#fac-shop").checked, status: "confirmada" }));
+  facList();
+};
+$("#fac-apply").onclick = async () => {
+  busy("levando para a maquete…");
+  try { const j = await api("/api/fachada/aplicar", {}); $("#fac-st").textContent = j.nota || `${j.predios} prédios com janelas${j.render ? "; refazendo o render" : ""}`; } catch (e) { info(e.message); } finally { busy(); }
+};
+$("#tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab='fac']")) { facSV(); facList(); } });
 </script>
 </body>
 </html>

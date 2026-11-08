@@ -13,6 +13,9 @@
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
   tinymap doctor   <region.yaml>                  confere GPU, RAM, disco, chaves e dependências (antes de gastar GPU)
+  tinymap fachada  <region.yaml> --at lat,lon --backend foto|mapillary|streetview [--file foto.jpg]
+                                                 ficha de fachada (andares, janelas) a partir de uma foto da rua
+  tinymap fachada-aplicar <region.yaml>          fichas confirmadas -> janelas na maquete (depois: render)
   tinymap avisos   <region.yaml> --file a.json    importa avisos do público (site) para o estúdio
   tinymap demo                                   cidade de demonstração (runs/demo, regions/demo.yaml), sem GPU
   tinymap polish   <region.yaml> [--grid --palette --seams] [--dry-run|--undo]  polimento determinístico, desfazível
@@ -123,6 +126,25 @@ def main() -> None:
         build()
         return
     run = R.load(a.region, pilot=a.pilot)
+    if a.cmd == "fachada":
+        from PIL import Image as _I
+
+        from .fachada import Fichas, fetch
+        lat, lon = (float(v) for v in a.at.split(","))
+        fonte = a.backend if a.backend in ("mapillary", "streetview") else "foto"
+        if fonte == "foto":
+            if not a.file:
+                raise SystemExit("--file foto.jpg (ou --backend mapillary|streetview)")
+            f = Fichas(run).add_photo(lat, lon, _I.open(a.file), "foto")
+        else:
+            f = fetch(run, lat, lon, fonte)
+        print(json.dumps(f, ensure_ascii=False, indent=1))
+        print("confira no estúdio (aba Fachada) e confirme; depois: tinymap fachada-aplicar")
+        return
+    if a.cmd == "fachada-aplicar":
+        from .fachada import apply_to_scene
+        print(f"{apply_to_scene(run)} prédios com janelas na maquete; refaça o render (tinymap render)")
+        return
     if a.cmd == "avisos":
         from .mapedit import importar_avisos
         importar_avisos(run, Path(a.file))
