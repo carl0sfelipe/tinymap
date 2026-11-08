@@ -106,3 +106,34 @@ Para depois (não implementado):
 - **Teste de saturação** para separar grama de água opaca (grama ≥ 0,6, água ≤ 0,4 na paleta deles):
   calibrar nas nossas pinturas antes de mudar o detector de água inventada.
 - WebP q60 (189 MB para a cidade toda), tiles vazios não gravados e manifesto versionado no URL.
+
+## Novos no diretório (07/11/2026: 65 mapas)
+
+Entraram Mumbai, Paris (Postcard Roads), Roma, Madrid e Tirana; fora do diretório, Tiny Athens.
+Belo Horizonte continua sem mapa.
+
+| Mapa | O que tem de novo | Fonte |
+|---|---|---|
+| Isometric Mumbai | GPT Image redesenhou ~800 tiles; **LoRA no FLUX.2 [klein] 4B** (Apache-2.0), rank 32, 2.500 passos, lr 1e-4, ~1 h numa B200; **4 passos, ~2,5 s por tile de 1024 px**, guidance 1,0. Pares com **cópias do render de cor alterada** e exemplos de **preenchimento com moldura vermelha de 2 px** (faixas e miolo). | huggingface.co/Flash1405/isometric-mumbai |
+| Tiny Tirana | LoRA no Qwen-Image 2.1 treinada no **Google Colab (G4)**; blocos de 8.192 px com pinning; **emendas restantes curadas com faixas de SDEdit**; recorte do mapa no **formato da cidade**; aviões ao vivo (**adsb.lol / adsb.fi** por um proxy no Cloudflare Worker); ônibus pelo GTFS. | github.com/okanerturan/tiny-tirana |
+| Tiny Athens | Feito num **MacBook Air**: ~100 pinturas do Gemini, **LoRA em SD 1.5 + ControlNet canny** treinada no próprio Mac; ônibus e trólebus ao vivo (OASA). | github.com/angelopoulosk/tiny-athens |
+| Postcard Roads: Paris | Mapa que é jogo: mostra os jogadores dirigindo agora. | postcardroads.com/paris |
+
+Implementado no tinymap (sem GPU, testado em `tests/test_augment.py`):
+- `lab-train --color-copies N`: cópias do render com matiz, saturação, brilho e ganho de canal
+  alterados, mesma pintura-alvo. A LoRA para de copiar a cor do satélite.
+- `lab-train --infill N`: exemplos de preenchimento (arte fora, maquete dentro, moldura vermelha).
+  Prepara a geração tile a tile encostada em tiles prontos e o conserto por IA no estúdio.
+
+A fazer (por valor):
+1. **Backend FLUX.2 klein 4B** em `models.py` e `train.py` (arch do ai-toolkit para klein): 4 passos
+   e 4B parâmetros na 3090 dá ordens de grandeza menos tempo que o Qwen 20B, e é Apache-2.0
+   (comercial). Medir no laboratório contra a LoRA Qwen.
+2. **Geração por preenchimento** (Mumbai): pintar cada tile novo com a moldura, usando os vizinhos
+   prontos como contexto, como alternativa ao joint() para GPUs menores.
+3. **Faixas de SDEdit nas emendas** (Tirana): para as emendas de desenho, não só de cor, que o
+   polimento não resolve.
+4. **Recorte no formato da cidade** (Tirana): máscara do limite municipal do OSM no `site`.
+5. **Aviões ao vivo** (adsb.lol/adsb.fi): Foz (IGU), Minga Guazú (AGT) e Pampulha/Confins em BH.
+6. **Modo leve** (Athens): SD 1.5 + ControlNet para quem não tem GPU grande; bom para a plataforma.
+7. Divulgação: o mapa de mapas do tiny.london aceita PR (`tiny-world`), e há o Isometric Map Finder.

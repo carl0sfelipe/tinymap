@@ -21,7 +21,10 @@ from .region import Run
 
 
 def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, rank: int,
-          lr: float = 1e-4, save_every: int = 1000) -> Path:
+          lr: float = 1e-4, save_every: int = 1000, color_copies: int = 0, infill: int = 0) -> Path:
+    """color_copies: cópias do render com cor alterada por par (augment.color_shift).
+    infill: exemplos de preenchimento com moldura vermelha por par (augment.infill_example)."""
+    from .augment import INFILL_PROMPT, KINDS, color_shift, infill_example
     ds = run.path("lora", name, "dataset")
     tgt, ctl = ds / "target", ds / "control"
     for d in (tgt, ctl):
@@ -30,7 +33,7 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
     prompt = run.region["style"]["prompt"]
     from .lab import test_ids
     teste = test_ids(run)  # recortes do laboratório nunca entram no treino
-    n = fora = 0
+    n = fora = extra = 0
     for pd in pairs_dirs:
         for art in sorted(Path(pd).glob("*_art.png")):
             fid = art.name[:-8]
@@ -50,6 +53,18 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
             r.save(ctl / f"{key}.png")
             (tgt / f"{key}.txt").write_text(prompt)
             n += 1
+            seed = int.from_bytes(key.encode()[-8:].rjust(8, b"\0"), "little") % (2**31)
+            for k in range(color_copies):
+                a.save(tgt / f"{key}__cor{k}.png")
+                color_shift(r, seed + k).save(ctl / f"{key}__cor{k}.png")
+                (tgt / f"{key}__cor{k}.txt").write_text(prompt)
+                extra += 1
+            for k in range(infill):
+                kind = KINDS[(seed + k) % len(KINDS)]
+                a.save(tgt / f"{key}__fill{k}.png")
+                infill_example(r, a, kind, seed + 100 + k).save(ctl / f"{key}__fill{k}.png")
+                (tgt / f"{key}__fill{k}.txt").write_text(prompt + INFILL_PROMPT)
+                extra += 1
     cfg = {
         "job": "extension",
         "config": {
@@ -83,7 +98,8 @@ def build(run: Run, pairs_dirs: list[Path], name: str, base: str, steps: int, ra
     cfg_path = run.path("lora", name, "train.yaml")
     cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
     (cfg_path.parent / "lab.json").write_text(json.dumps(
-        {"base": base, "rank": rank, "lr": lr, "steps": steps, "pairs": n, "held_out": fora}))
-    print(f"{n} pairs ({fora} do teste ficaram de fora) -> {ds}\nconfig -> {cfg_path}\n"
+        {"base": base, "rank": rank, "lr": lr, "steps": steps, "pairs": n, "held_out": fora,
+         "color_copies": color_copies, "infill": infill, "examples": n + extra}))
+    print(f"{n} pairs + {extra} aumentados ({fora} do teste ficaram de fora) -> {ds}\nconfig -> {cfg_path}\n"
           f"run:  cd ai-toolkit && CUDA_VISIBLE_DEVICES=0 python run.py {cfg_path}")
     return cfg_path

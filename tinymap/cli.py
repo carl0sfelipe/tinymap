@@ -18,6 +18,7 @@
   tinymap train    <region.yaml> --pairs pairs_v1 [pairs_v2 ...] --name v1 [--steps 4000]
   tinymap lab-freeze <region.yaml> --pairs pairs_v1 [--n 32]          congela o teste (32 recortes fora do treino)
   tinymap lab-train  <region.yaml> --pairs pairs_v1 --name r1 [--rank 32 --lr 1e-4 --steps 3000 --save-every 500]
+                     [--color-copies 1 --infill 1]   aumentos do Isometric Mumbai (0 desliga)
   tinymap lab-eval   <region.yaml> --name base|r1 [--lora arquivo|pasta] [--seed 1] [--lora-scale 1]
   tinymap lab-report <region.yaml>                                     lab/index.html (gráfico, folhas, runs)
   tinymap try      <region.yaml> --lora X.safetensors [--at lat,lon]   one block, to judge a LoRA
@@ -79,6 +80,8 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--save-every", type=int, default=500)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--color-copies", type=int, default=1, help="lab-train: cópias do render com cor alterada por par")
+    ap.add_argument("--infill", type=int, default=1, help="lab-train: exemplos de preenchimento (moldura vermelha) por par")
     ap.add_argument("--model", default="Qwen/Qwen-Image-Edit-2511")
     ap.add_argument("--lora")
     ap.add_argument("--lora-scale", type=float, default=1.0)
@@ -180,7 +183,8 @@ def main() -> None:
         from .train import build
         if not test_ids(run):
             ap.error("congele o teste antes: tinymap lab-freeze ... --pairs ...")
-        build(run, [run.dir / p for p in a.pairs], a.name, a.model, a.steps, a.rank, lr=a.lr, save_every=a.save_every)
+        build(run, [run.dir / p for p in a.pairs], a.name, a.model, a.steps, a.rank, lr=a.lr, save_every=a.save_every,
+              color_copies=a.color_copies, infill=a.infill)
     elif a.cmd == "lab-eval":
         from .lab import LocalPainter, checkpoints, evaluate, report
         painter = LocalPainter(run, model_id=a.model, quant=a.quant, gpu=a.gpu)
