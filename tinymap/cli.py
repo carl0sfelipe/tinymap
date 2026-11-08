@@ -12,6 +12,7 @@
   tinymap sheets   <region.yaml> --out pairs_v1   contact sheets for the human pass
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
+  tinymap doctor   <region.yaml>                  confere GPU, RAM, disco, chaves e dependências (antes de gastar GPU)
   tinymap demo                                   cidade de demonstração (runs/demo, regions/demo.yaml), sem GPU
   tinymap polish   <region.yaml> [--grid --palette --seams] [--dry-run|--undo]  polimento determinístico, desfazível
   tinymap autofix  <region.yaml> [--lakes] [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
@@ -104,6 +105,13 @@ def main() -> None:
     ap.add_argument("--sat-only", action="store_true", help="render: só a foto do satélite (render_sat/)")
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args()
+    if a.cmd == "doctor":
+        import sys
+
+        import yaml as _y
+
+        from .doctor import check
+        sys.exit(check(_y.safe_load(open(a.region)) if Path(a.region).exists() else None))
     if a.cmd == "demo":
         from .demo import build
         build()
