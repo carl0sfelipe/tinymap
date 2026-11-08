@@ -56,6 +56,20 @@ class ModelCfg:
     lora_scale: float = 1.0
     quant: str = "nf4"          # nf4 (fits 24 GB) | none (needs ~60 GB) | offload (bf16 with CPU offload, slow)
     device: str = "cuda:0"
+    # Adaptador Lightning (lightx2v, Apache-2.0): o Qwen-Image-Edit-2511 em 4 passos sem CFG. Usado
+    # no professor (Isometric SF): ~4x mais pares por hora de GPU. Arquivo dentro do repositório HF.
+    lightning: bool = False
+    lightning_repo: str = "lightx2v/Qwen-Image-Edit-2511-Lightning"
+    lightning_file: str = "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+
+
+LIGHTNING_STEPS = 4
+# Scheduler do Qwen-Image-Lightning (README do lightx2v): shift dinâmico fixo em ln 3.
+LIGHTNING_SCHED = dict(base_image_seq_len=256, base_shift=math.log(3), invert_sigmas=False,
+                       max_image_seq_len=8192, max_shift=math.log(3), num_train_timesteps=1000, shift=1.0,
+                       shift_terminal=None, stochastic_sampling=False, time_shift_type="exponential",
+                       use_beta_sigmas=False, use_dynamic_shifting=True, use_exponential_sigmas=False,
+                       use_karras_sigmas=False)
 
 
 class QwenEdit:
@@ -79,9 +93,17 @@ class QwenEdit:
                 quantization_config=TBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=DTYPE),
             )
         p = QwenImageEditPlusPipeline.from_pretrained(cfg.model_id, torch_dtype=DTYPE, **kw)
+        names, weights = [], []
+        if cfg.lightning:
+            from diffusers import FlowMatchEulerDiscreteScheduler
+            p.scheduler = FlowMatchEulerDiscreteScheduler.from_config(LIGHTNING_SCHED)
+            p.load_lora_weights(cfg.lightning_repo, weight_name=cfg.lightning_file, adapter_name="lightning")
+            names.append("lightning"); weights.append(1.0)
         if cfg.lora:
             p.load_lora_weights(cfg.lora, adapter_name="style")
-            p.set_adapters(["style"], adapter_weights=[cfg.lora_scale])
+            names.append("style"); weights.append(cfg.lora_scale)
+        if names:
+            p.set_adapters(names, adapter_weights=weights)
         if cfg.quant == "offload":
             p.enable_model_cpu_offload(gpu_id=torch.device(cfg.device).index or 0)
         else:
@@ -98,6 +120,8 @@ class QwenEdit:
     def edit(self, img: Image.Image, prompt: str, steps: int = 20, true_cfg: float = 1.0,
              negative: str | None = None, seed: int = 0) -> Image.Image:
         g = torch.Generator(self.dev).manual_seed(seed)
+        if self.cfg.lightning:
+            steps, true_cfg = LIGHTNING_STEPS, 1.0
         kw = dict(negative_prompt=negative or " ") if true_cfg > 1 else {}
         out = self.p(image=[img], prompt=prompt, num_inference_steps=steps, true_cfg_scale=true_cfg,
                      height=img.height, width=img.width, generator=g, **kw)

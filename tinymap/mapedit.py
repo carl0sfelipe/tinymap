@@ -348,8 +348,17 @@ class MapEdit:
             if soft > 0.3:
                 items.append({"kind": "borrado", "area": s * s, "score": round(soft, 2),
                               "box": [c * s, r * s, (c + 1) * s, (r + 1) * s]})
+        # avisos do público (site: clique direito / toque longo "tem erro aqui"), importados com `tinymap avisos`
+        av = self.run.dir / "avisos.json"
+        if av.exists():
+            for a in json.loads(av.read_text()):
+                if a.get("resolvido"):
+                    continue
+                x, y = int(a["x"]), int(a["y"])
+                items.append({"kind": "aviso do público", "area": 0, "texto": str(a.get("texto", ""))[:280],
+                              "box": [x - 128, y - 128, x + 128, y + 128]})
         items = [it for it in items if inside((it["box"][0] + it["box"][2]) / 2, (it["box"][1] + it["box"][3]) / 2)]
-        order = {"água inventada": 0, "terra no rio": 1, "emenda": 2, "borrado": 3}
+        order = {"aviso do público": -1, "água inventada": 0, "terra no rio": 1, "emenda": 2, "borrado": 3}
         items.sort(key=lambda x: (order.get(x["kind"], 9), -x["area"]))
         self.problems = {"status": "pronto", "done": len(shots), "total": len(shots), "items": items[:600]}
 
@@ -541,6 +550,22 @@ class MapEdit:
         if self.pub is None:
             return {"running": False, "code": None}
         return {"running": self.pub.poll() is None, "code": self.pub.poll()}
+
+
+def importar_avisos(run: Run, src: Path) -> int:
+    """Junta avisos do público (lista de {x, y, texto, link}) em runs/<região>/avisos.json, sem repetir."""
+    dest = run.dir / "avisos.json"
+    old = json.loads(dest.read_text()) if dest.exists() else []
+    seen = {(o["x"], o["y"], o.get("texto")) for o in old}
+    novos = []
+    for n in json.loads(Path(src).read_text()):
+        key = (n.get("x"), n.get("y"), n.get("texto"))
+        if {"x", "y"} <= set(n) and key not in seen:
+            seen.add(key)
+            novos.append(n)
+    dest.write_text(json.dumps(old + novos, ensure_ascii=False, indent=1))
+    print(f"{len(novos)} avisos novos ({len(old) + len(novos)} no total) em {dest}")
+    return len(novos)
 
 
 def serve(ed: MapEdit, host: str, port: int) -> None:

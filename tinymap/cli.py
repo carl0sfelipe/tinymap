@@ -13,6 +13,7 @@
   tinymap review   <region.yaml> [--pilot] [--out pairs_v1] [--port 8765]   revisão humana + editor (HITL)
   tinymap edit     <region.yaml> [--port 8766]    oficina do mapa: achar defeitos, exportar p/ Gemini, reimportar
   tinymap doctor   <region.yaml>                  confere GPU, RAM, disco, chaves e dependências (antes de gastar GPU)
+  tinymap avisos   <region.yaml> --file a.json    importa avisos do público (site) para o estúdio
   tinymap demo                                   cidade de demonstração (runs/demo, regions/demo.yaml), sem GPU
   tinymap polish   <region.yaml> [--grid --palette --seams] [--dry-run|--undo]  polimento determinístico, desfazível
   tinymap autofix  <region.yaml> [--lakes] [--dry-run|--undo] água inventada -> rua/grama (regras das edições à mão), desfazível
@@ -43,7 +44,8 @@ from . import region as R
 
 def _model(a):
     from .models import ModelCfg, QwenEdit
-    return QwenEdit(ModelCfg(model_id=a.model, lora=a.lora, lora_scale=a.lora_scale, quant=a.quant, device=f"cuda:{a.gpu}"))
+    return QwenEdit(ModelCfg(model_id=a.model, lora=a.lora, lora_scale=a.lora_scale, quant=a.quant, device=f"cuda:{a.gpu}",
+                             lightning=getattr(a, "lightning", False)))
 
 
 def _box(run, pilot: bool) -> dict:
@@ -87,6 +89,7 @@ def main() -> None:
     ap.add_argument("--lora")
     ap.add_argument("--lora-scale", type=float, default=1.0)
     ap.add_argument("--quant", default="nf4")
+    ap.add_argument("--lightning", action="store_true", help="teacher: adaptador Lightning, 4 passos sem CFG (~4x mais rápido)")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--at", help="lat,lon for `try`")
     ap.add_argument("--version", default="v1")
@@ -102,8 +105,11 @@ def main() -> None:
     ap.add_argument("--grid", action="store_true", help="polish: grade de pixel")
     ap.add_argument("--palette", action="store_true", help="polish: paleta do mapa")
     ap.add_argument("--seams", action="store_true", help="polish: emendas entre blocos")
+    ap.add_argument("--tone", action="store_true", help="polish: tom global igual ao dos pares do professor")
+    ap.add_argument("--shape", action="store_true", help="polish: recorta na forma da cidade (`shape:` no YAML)")
     ap.add_argument("--sat-only", action="store_true", help="render: só a foto do satélite (render_sat/)")
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--file", help="avisos: JSON exportado (lista de {x, y, texto, link})")
     a = ap.parse_args()
     if a.cmd == "doctor":
         import sys
@@ -117,6 +123,10 @@ def main() -> None:
         build()
         return
     run = R.load(a.region, pilot=a.pilot)
+    if a.cmd == "avisos":
+        from .mapedit import importar_avisos
+        importar_avisos(run, Path(a.file))
+        return
 
     if a.cmd == "plan":
         json.dump(run.region, open(run.path("region.json"), "w"), ensure_ascii=False, default=str)
@@ -156,6 +166,8 @@ def main() -> None:
         print(p)
     elif a.cmd == "teacher":
         from .teacher import run_teacher
+        if a.backend == "qwen" and run.region["generate"].get("teacher_lightning"):
+            a.lightning = True
         model = _model(a) if a.backend == "qwen" else None
         run_teacher(run, run.path(a.out, ".keep").parent, a.n, a.backend, model)
     elif a.cmd == "sheets":
@@ -166,8 +178,9 @@ def main() -> None:
         if a.undo:
             print(f"{polish_undo(run, a.region)} edições desfeitas")
         else:
-            todas = not (a.grid or a.palette or a.seams)
-            tot = polish_all(run, a.region, a.grid or todas, a.palette or todas, a.seams or todas, a.dry_run)
+            todas = not (a.grid or a.palette or a.seams or a.tone or a.shape)
+            tot = polish_all(run, a.region, a.grid or todas, a.palette or todas, a.seams or todas, a.dry_run,
+                             tone=a.tone or todas, shape=a.shape or todas)
             print({k: v for k, v in tot.items() if k != "ids"})
     elif a.cmd == "autofix":
         from .autofix import run_all, undo_last

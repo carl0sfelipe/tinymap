@@ -44,6 +44,8 @@ tinymap osm    regions/belo-horizonte.yaml --pilot
 tinymap stitch regions/belo-horizonte.yaml --pilot      # prévia do render
 
 # 1. pares de treino com revisão humana (estúdio) e laboratório de LoRA
+python scripts/budget_guard.py --max-usd 20 &                 # teto de gasto na GPU alugada
+tinymap teacher regions/belo-horizonte.yaml --pilot --backend qwen --out pairs_v1 --n 4    # Lightning (YAML)
 tinymap teacher regions/belo-horizonte.yaml --pilot --backend qwen --out pairs_v1 --n 120
 tinymap review  regions/belo-horizonte.yaml --pilot
 tinymap lab-freeze regions/belo-horizonte.yaml --pilot --pairs pairs_v1
@@ -57,7 +59,7 @@ tinymap plan     regions/belo-horizonte.yaml
 tinymap render   regions/belo-horizonte.yaml --workers 3
 scripts/gpus.sh  regions/belo-horizonte.yaml <melhor LoRA>
 tinymap autofix  regions/belo-horizonte.yaml --lakes
-tinymap polish   regions/belo-horizonte.yaml
+tinymap polish   regions/belo-horizonte.yaml            # grade, paleta, emendas, tom global e forma
 tinymap edit     regions/belo-horizonte.yaml            # estúdio: saúde do mapa e retoques
 tinymap site     regions/belo-horizonte.yaml
 ```
@@ -82,3 +84,18 @@ transfere entre cidades, que é o que a plataforma precisa para escalar.
   não o render.
 - **Licença**: imagem derivada do Google 3D Tiles exige atribuição; para uso comercial, use o
   Qwen-Image-Edit-2511 (Apache) como professor e base da LoRA (já está assim no YAML).
+
+## Novidades de nov/2026 já no código
+
+- **Professor em 4 passos** (`generate.teacher_lightning: true`): adaptador Lightning do
+  lightx2v (Apache-2.0) sobre o Qwen-Image-Edit-2511, sem CFG. Compare 4 pares com e sem antes dos 120.
+- **Professor com LoRA de preenchimento** (Isometric SF): com poucos alvos bons (Gemini ou feitos à
+  mão no estúdio), `lab-train --pairs <alvos> --name prof --infill 5 --color-copies 0` e depois
+  `teacher --lora <prof>`: cada alvo vira 5 exemplos de "pinte a caixa".
+- **Teto de gasto**: `scripts/budget_guard.py` para os jobs e a instância da vast.ai no limite.
+- **Tom global** (Isometric Toronto): `polish --tone` leva o mapa inteiro à relação arte/render dos
+  pares do professor, com um único ajuste medido em 12 janelas.
+- **Forma da cidade** (Tiny Tirana): `shape:` no YAML (lista de [lat, lon]) e `polish --shape`.
+- **Avisos do público** (Isometric Warsaw): clique direito ou toque longo no site; com
+  `feedback_url` no config.json vai para o now.services, senão copia o link do ponto.
+  `tinymap avisos --file export.json` põe cada aviso na lista de problemas do estúdio.

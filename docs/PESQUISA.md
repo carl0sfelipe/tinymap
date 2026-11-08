@@ -137,3 +137,22 @@ A fazer (por valor):
 5. **Aviões ao vivo** (adsb.lol/adsb.fi): Foz (IGU), Minga Guazú (AGT) e Pampulha/Confins em BH.
 6. **Modo leve** (Athens): SD 1.5 + ControlNet para quem não tem GPU grande; bom para a plataforma.
 7. Divulgação: o mapa de mapas do tiny.london aceita PR (`tiny-world`), e há o Isometric Map Finder.
+
+## Varredura de 08/11/2026
+
+Diretório isometriccities.com: 80 mapas, 27 novos em novembro. Brasil novo: Brasília Isocity
+(Igor Azevedo e Breno Kern), TinySP (Lucas Guerras), Tiny Orindiúva (dados abertos). BH: nenhum.
+
+| Fonte | Técnica | No tinymap |
+|---|---|---|
+| Isometric SF (Justin Chavez) | Lightning 4 passos no Qwen-Edit-2511 | `teacher_lightning` |
+| Isometric SF | professor com LoRA de preenchimento (45 alvos × 5) | `lab-train --infill 5` |
+| Isometric SF | guarda de gasto para rodar a noite | `scripts/budget_guard.py` |
+| Isometric SF | aluno FLUX.2 klein 4B, ~4x mais rápido | pendente (backend klein) |
+| Isometric Toronto | filtro automático + 3 tentativas por par | já existia (`checks`, `ATTEMPTS`) |
+| Isometric Toronto | checkpoint intermediário ganha do final | já existia (lab) |
+| Isometric Toronto | tom global calibrado em 12 janelas | `polish --tone` |
+| Isometric Toronto | camada pixel art com 256 cores acima de 2x | não precisa: nossa arte já é grade de pixel |
+| Tiny Tirana | recorte na forma da cidade; cura de emenda com SDEdit | `polish --shape`; SDEdit pendente |
+| Isometric Warsaw | aviso preso ao local | site + `tinymap avisos` |
+| tiny.london | LoRA pública (`ktoyame/tiny-london-lora`) | só comparação no lab: licença não comercial |

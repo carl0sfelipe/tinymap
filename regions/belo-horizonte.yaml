@@ -77,6 +77,9 @@ generate:
   steps: 16
   true_cfg: 2.5
   seed: 3110         # (31) BH
+  # Professor com o adaptador Lightning (4 passos, sem CFG): ~4x mais pares por hora de 3090.
+  # Se os pares saírem piores que sem ele (compare 4 pares no passo C), tire esta linha.
+  teacher_lightning: true
 
 # Sem pontes com dado ao vivo por enquanto. Candidatos a camada ao vivo: BHTrans (ônibus),
 # metrô, Mineirão em dia de jogo (fase 2).

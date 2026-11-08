@@ -37,6 +37,10 @@
   #card button.fechar { position:absolute; top:6px; right:8px; background:none; border:0; color:var(--ink); font:inherit; font-size:20px; cursor:pointer; }
   #ponte { position:fixed; top:64px; right:12px; background:var(--panel); border:2px solid var(--ink); padding:8px 10px; z-index:5; font-size:14px; cursor:pointer; display:none; }
   #ponte b { color:var(--accent); }
+  #aviso { position:fixed; z-index:9; display:none; width:min(280px, calc(100% - 32px)); background:var(--panel); border:2px solid var(--ink); padding:10px; }
+  #aviso textarea { width:100%; box-sizing:border-box; min-height:64px; background:#0008; color:var(--ink); border:1px solid var(--ink); font:inherit; }
+  #aviso div { display:flex; gap:6px; margin-top:6px; }
+  #aviso button { flex:1; padding:6px; background:none; color:var(--ink); border:2px solid var(--ink); font:inherit; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -49,6 +53,12 @@
 <div id="results" role="listbox"></div>
 <div id="ponte" role="button" title="Ir para a ponte"></div>
 <div id="card" role="dialog" aria-live="polite"></div>
+<form id="aviso" aria-label="Avisar erro neste ponto">
+  <label for="aviso-t">Tem algo errado aqui?</label>
+  <textarea id="aviso-t" maxlength="280" placeholder="ex.: este prédio não existe mais"></textarea>
+  <div><button type="submit">Enviar</button><button type="button" id="aviso-x">Fechar</button></div>
+  <small id="aviso-ok"></small>
+</form>
 <footer>Imagem derivada de Google Photorealistic 3D Tiles · Dados © OpenStreetMap contributors</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/5.0.1/openseadragon.min.js"></script>
 <script>
@@ -215,6 +225,37 @@
     }
     res.style.display = hits.length ? "block" : "none";
   });
+
+  // Aviso preso ao local (Isometric Warsaw): clique direito ou toque longo abre "tem algo errado
+  // aqui?". Vai para cfg.feedback_url (POST JSON) se houver; senão copia o link do ponto. No estúdio,
+  // `tinymap avisos` importa e cada aviso vira um item da lista de problemas.
+  const av = document.getElementById("aviso"), avT = document.getElementById("aviso-t"), avOk = document.getElementById("aviso-ok");
+  let avPt = null;
+  const abrirAviso = (cx, cy) => {
+    const vp = viewer.viewport.pointFromPixel(new OpenSeadragon.Point(cx, cy));
+    avPt = { x: Math.round(vp.x * W), y: Math.round(vp.y * W), zoom: +viewer.viewport.viewportToImageZoom(viewer.viewport.getZoom()).toFixed(2) };
+    av.style.left = Math.min(cx, innerWidth - 300) + "px"; av.style.top = Math.min(cy, innerHeight - 180) + "px";
+    av.style.display = "block"; avOk.textContent = ""; avT.value = ""; avT.focus();
+  };
+  viewer.canvas.addEventListener("contextmenu", (e) => { e.preventDefault(); const r = viewer.canvas.getBoundingClientRect(); abrirAviso(e.clientX - r.left, e.clientY - r.top); });
+  let toque = null;
+  viewer.canvas.addEventListener("touchstart", (e) => { if (e.touches.length !== 1) return; const t = e.touches[0], r = viewer.canvas.getBoundingClientRect(); toque = setTimeout(() => abrirAviso(t.clientX - r.left, t.clientY - r.top), 650); }, { passive: true });
+  for (const ev of ["touchend", "touchmove", "touchcancel"]) viewer.canvas.addEventListener(ev, () => clearTimeout(toque), { passive: true });
+  document.getElementById("aviso-x").onclick = () => { av.style.display = "none"; };
+  av.onsubmit = async (e) => {
+    e.preventDefault();
+    const link = `${location.origin}${location.pathname}#${avPt.x},${avPt.y},${Math.max(avPt.zoom, 1)}`;
+    const corpo = { mapa: meta.title, ...avPt, texto: avT.value.trim(), link, quando: new Date().toISOString() };
+    try {
+      if (!cfg.feedback_url) throw 0;
+      const r = await fetch(cfg.feedback_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) });
+      if (!r.ok) throw 0;
+      avOk.textContent = "Obrigado! Vamos conferir.";
+    } catch {
+      try { await navigator.clipboard.writeText(`${corpo.texto} ${link}`); avOk.textContent = "Link do ponto copiado."; }
+      catch { avOk.textContent = link; }
+    }
+  };
 
   // shareable position in the URL hash: #x,y,zoom (image px)
   const h = location.hash.slice(1).split(",").map(Number);

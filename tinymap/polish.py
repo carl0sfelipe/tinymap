@@ -381,14 +381,104 @@ def map_palette(run, n: int = 64) -> list[tuple[int, int, int]]:
     return pal
 
 
+def tone_stats(pairs: list[tuple[Image.Image, Image.Image]]) -> tuple[np.ndarray, np.ndarray]:
+    """Relação arte/render por canal num conjunto de pares (arte, render): média e desvio da arte
+    descontada a do render. Comparar com o render tira o efeito do bairro (mais verde, mais concreto)."""
+    da, ds = [], []
+    for art, ren in pairs:
+        a = np.asarray(art.convert("RGB").resize((256, 256), Image.BOX), np.float32).reshape(-1, 3)
+        r = np.asarray(ren.convert("RGB").resize((256, 256), Image.BOX), np.float32).reshape(-1, 3)
+        da.append(a.mean(0) - r.mean(0))
+        ds.append(a.std(0) / np.maximum(r.std(0), 1))
+    return np.mean(da, 0), np.mean(ds, 0)
+
+
+def global_tone(ref_pairs, map_pairs, max_gain: float = 0.15, max_off: float = 20.0):
+    """Ajuste de tom único para o mapa inteiro (Isometric Toronto: a geração conjunta saiu um pouco
+    mais escura que os pares; um só ajuste, calibrado em ~12 janelas, não cria emenda). Devolve
+    ganho e deslocamento por canal que levam o mapa à relação arte/render dos pares do professor."""
+    (dm_ref, sr_ref), (dm_map, sr_map) = tone_stats(ref_pairs), tone_stats(map_pairs)
+    gain = np.clip(sr_ref / np.maximum(sr_map, 1e-3), 1 - max_gain, 1 + max_gain)
+    mean_map = np.mean([np.asarray(a.convert("RGB").resize((64, 64), Image.BOX), np.float32).reshape(-1, 3).mean(0)
+                        for a, _ in map_pairs], 0)
+    # depois do ganho em volta da média, desloca para a diferença arte - render dos pares
+    off = np.clip((dm_ref - dm_map) + mean_map * (1 - gain), -max_off, max_off)
+    return gain, off
+
+
+def tone_windows(ed, run, n: int = 12, size: int = 1024, seed: int = 0):
+    """n janelas do mapa com arte cheia, espalhadas e determinísticas."""
+    rng = np.random.default_rng(seed)
+    W, H = run.view["canvas_px"]
+    out, tries = [], 0
+    while len(out) < n and tries < n * 30:
+        tries += 1
+        x, y = int(rng.integers(0, max(1, W - size))), int(rng.integers(0, max(1, H - size)))
+        art = ed.crop("art", (x, y, x + size, y + size))
+        if art.mode == "RGBA" and np.asarray(art.getchannel("A")).min() < 250:
+            continue
+        out.append((art.convert("RGB"), ed.crop("render", (x, y, x + size, y + size)).convert("RGB")))
+    return out
+
+
+def ref_pairs(run, n: int = 40) -> list:
+    """Pares aceitos do professor (pairs_*/<id>_art.png + _render.png), até n."""
+    out = []
+    for d in sorted(run.dir.glob("pairs_*")):
+        for a in sorted(d.glob("*_art.png")):
+            r = a.with_name(a.name.replace("_art", "_render"))
+            if r.exists():
+                out.append((Image.open(a), Image.open(r)))
+            if len(out) >= n:
+                return out
+    return out
+
+
+def shape_mask(run, size: tuple[int, int], scale: float = 1.0) -> Image.Image | None:
+    """Máscara da forma da cidade (`shape:` no YAML, lista de [lat, lon]), em px do canvas × scale."""
+    poly = run.region.get("shape")
+    if not poly:
+        return None
+    from PIL import ImageDraw
+
+    from . import geo
+    aff = geo.load(run)
+    pts = [tuple(v * scale for v in geo.to_px(aff, lat, lon)) for lat, lon in poly]
+    m = Image.new("L", size, 0)
+    ImageDraw.Draw(m).polygon(pts, fill=255)
+    return m
+
+
 def run_all(run, region_file: str, grid: bool, palette: bool, seams: bool, dry_run: bool = False,
-            only: list[str] | None = None) -> dict:
+            only: list[str] | None = None, tone: bool = False, shape: bool = False) -> dict:
     """Mapa inteiro, shot a shot, pelo histórico da oficina (desfazível)."""
     from .mapedit import MapEdit
     ed = MapEdit(run, region_file)
     s = run.view["shot_px"]
     pal = map_palette(run) if palette else None
     tot: dict = {"shots": 0, "emendas": 0, "ids": []}
+
+    def put(p, out_rgb, alpha, note):
+        r, c = (int(v[1:]) for v in p.stem.split("_"))
+        o = out_rgb.convert("RGBA")
+        o.putalpha(alpha)
+        b = io.BytesIO()
+        o.save(b, "PNG", compress_level=1)
+        tot["ids"].append(ed.apply((c * s, r * s, (c + 1) * s, (r + 1) * s), b.getvalue(), note)["id"])
+
+    if tone:
+        ref = ref_pairs(run)
+        win = tone_windows(ed, run)
+        if len(ref) < 4 or len(win) < 4:
+            print(f"tom: poucos pares ({len(ref)}) ou janelas ({len(win)}); pulando", flush=True)
+        else:
+            g_, o_ = global_tone(ref, win)
+            tot["tom"] = {"ganho": [round(float(v), 3) for v in g_], "desloc": [round(float(v), 1) for v in o_]}
+            print(f"tom global: ganho {tot['tom']['ganho']} desloc {tot['tom']['desloc']}", flush=True)
+            if not dry_run and not (np.allclose(g_, 1, atol=0.01) and np.allclose(o_, 0, atol=1.0)):
+                for p in sorted((run.dir / "art").glob("r*_c*.png")):
+                    im = Image.open(p).convert("RGBA")
+                    put(p, apply_transform(im.convert("RGB"), g_, o_), im.getchannel("A"), "auto: tom global")
     ops = [o for o, on in (("grid", grid), ("palette", palette)) if on]
     if ops:
         for p in sorted((run.dir / "art").glob("r*_c*.png")):
@@ -445,6 +535,26 @@ def run_all(run, region_file: str, grid: bool, palette: bool, seams: bool, dry_r
                 tot["ids"].append(_fix_one(ed, run, it))
             print(f"passada {passada + 1}: {len(found)} trechos de emenda corrigidos", flush=True)
         tot["emendas_restantes"] = len(seam_items(ed)) if not dry_run else tot["emendas"]
+    if shape:
+        W, H = run.view["canvas_px"]
+        m = shape_mask(run, (W, H))
+        if m is None:
+            print("forma: região sem `shape:`; pulando", flush=True)
+        else:
+            cut = 0
+            for p in sorted((run.dir / "art").glob("r*_c*.png")):
+                r, c = (int(v[1:]) for v in p.stem.split("_"))
+                box = (c * s, r * s, (c + 1) * s, (r + 1) * s)
+                mk = m.crop(box)
+                if np.asarray(mk).min() == 255:
+                    continue
+                im = Image.open(p).convert("RGBA")
+                a = Image.fromarray(np.minimum(np.asarray(im.getchannel("A")), np.asarray(mk)))
+                cut += 1
+                if not dry_run:
+                    put(p, im.convert("RGB"), a, "auto: forma da cidade")
+            tot["forma_shots"] = cut
+            print(f"forma da cidade: {cut} shots recortados", flush=True)
     if not dry_run:
         (run.dir / "polish_last.json").write_text(json.dumps(tot["ids"]))
     return tot

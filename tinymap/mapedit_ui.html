@@ -1294,8 +1294,9 @@ document.querySelectorAll("[data-size]").forEach((b) => (b.onclick = () => {
 
 // ---------- defeitos, histórico, publicar, busca ----------
 $("#b-scan").onclick = async () => { await api("/api/problems", {}); pollScan(); };
-const KIND_ICON = { "água inventada": "🟦", "terra no rio": "🟧", "emenda": "🟪", "borrado": "🟨" };
-const KIND_COLOR = { "água inventada": "rgba(0,200,255,.9)", "terra no rio": "rgba(255,170,0,.9)", "emenda": "rgba(190,110,255,.95)", "borrado": "rgba(255,225,80,.8)" };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const KIND_ICON = { "aviso do público": "📣", "água inventada": "🟦", "terra no rio": "🟧", "emenda": "🟪", "borrado": "🟨" };
+const KIND_COLOR = { "aviso do público": "rgba(255,60,60,.95)", "água inventada": "rgba(0,200,255,.9)", "terra no rio": "rgba(255,170,0,.9)", "emenda": "rgba(190,110,255,.95)", "borrado": "rgba(255,225,80,.8)" };
 function healthUI(status) {
   if (status !== "pronto") { if (status === "procurando") $("#health").innerHTML = '<div class="sub">medindo…</div>'; return; }
   const n = (k) => problems.filter((p) => p.kind === k).length;
@@ -1348,7 +1349,7 @@ async function pollScan() {
   const j = await api("/api/problems"); problems = j.items || [];
   $("#scanst").textContent = j.status === "procurando" ? `procurando… ${j.done}/${j.total} shots` : j.status === "pronto" ? `${problems.length} achados` : "";
   $("#scanst2").textContent = $("#scanst").textContent;
-  $("#problist").innerHTML = problems.map((p, i) => `<div data-i="${i}"><span>${KIND_ICON[p.kind] || "•"} ${p.kind}</span><span class="sub">${p.kind === "emenda" ? `Δcor ${p.score}` : p.kind === "borrado" ? `${Math.round(p.score * 100)}% mole` : (p.area * M.mpp * M.mpp / 10000).toFixed(2) + " ha"}</span></div>`).join("");
+  $("#problist").innerHTML = problems.map((p, i) => `<div data-i="${i}"><span>${KIND_ICON[p.kind] || "•"} ${p.kind}</span><span class="sub">${p.kind === "aviso do público" ? esc(p.texto || "sem texto") : p.kind === "emenda" ? `Δcor ${p.score}` : p.kind === "borrado" ? `${Math.round(p.score * 100)}% mole` : (p.area * M.mpp * M.mpp / 10000).toFixed(2) + " ha"}</span></div>`).join("");
   healthUI(j.status); draw(); if (j.status === "procurando") setTimeout(pollScan, 1500);
 }
 $("#problist").onclick = (e) => { const d = e.target.closest("[data-i]"); if (!d) return; const p = problems[+d.dataset.i], pad = 192; const b = [snap(p.box[0] - pad), snap(p.box[1] - pad), snap(p.box[2] + pad), snap(p.box[3] + pad)]; setSel(b); goBox(b); };
