@@ -361,3 +361,46 @@ só sai por HTTPS. As imagens ficam publicadas por outro túnel
 - **Bilateral / mean-shift**: filtros clássicos que suavizam sem borrar bordas.
 - **Hough**: técnica que acha linhas retas numa imagem.
 - **SSIM / IoU**: medidas de semelhança entre imagens ou regiões.
+
+---
+
+## 7. Anexo: o que aprendemos com o tiny.london (lido em 10/11/2026)
+
+Fonte: https://tiny.london/how/ (Boris Starkov, outubro 2026). Os números são declarados
+pelo autor.
+
+**Pipeline:**
+
+1. **Render:** uma câmera ortográfica única para Londres inteira, com 3.570 fotos de
+   2.048 px que se alinham ao pixel; mover o *frustum* em vez de mover a câmera.
+2. **Professor:** o Gemini 3 Pro Image redesenha cerca de 2.500 quadros de 1.024 px.
+   Testes automáticos comparados com o render e com o OSM rejeitam 31%. **Nenhuma
+   rotulagem manual.**
+3. **LoRA:** rank 32, 8.000 passos, lr 1e-4, 6.326 exemplos, ai-toolkit, sobre o
+   **Qwen-Image-2.1-Turbo** em int8: 3h50 numa H100. A v1 deles, com 86 pares, também
+   saiu fraca.
+4. **Geração sem emenda (MultiDiffusion):** **um latente só** para o mapa inteiro. A cada
+   passo, o modelo roda em janelas de 1.024 px com passo de 768 px e as previsões são
+   somadas com um peso em "tenda" (zero na borda da janela). Nos passos ímpares a grade
+   fica deslocada em 384 px. Pixels prontos ficam **presos** (*pinning*, método RePaint),
+   e o novo cresce a partir deles. Os blocos de 12.288 px rodam em 4 fases pela paridade
+   de linha e coluna.
+5. **Água:** o OSM indica onde há água. Objetos inventados na água são removidos com uma
+   textura de água próxima mais uma **correção de Poisson** (sem emenda).
+
+**Lições para nós:**
+
+- O prompt deve dizer **como** desenhar, nunca **o quê**: "desenhe exatamente o que o
+  render mostra; não acrescente nada; onde há pouco detalhe, mantenha simples".
+- Incluir uma frase por quadro gerada do OSM: "WATER IN THIS VIEW: none...". Isso
+  acaba com lagos inventados.
+- Teste de cópia da foto: fração de pixels com vizinhança 3×3 chapada. Desenho bom fica
+  entre 0,42 e 0,55; cópia, entre 0,18 e 0,35.
+- Diversidade do treino: embeddings DINOv2, 64 grupos por aparência, de 8 a 30 exemplos
+  por grupo, mais lugares difíceis e quadros com zoom de 2×.
+- A LoRA precisa de **centenas a milhares** de pares escolhidos automaticamente. Com
+  38 a 86 pares, ela fica fraca.
+- O pós-processamento (nosso filtro D) deve rodar **uma vez no mapa montado**, não em
+  cada janela, para não criar emenda.
+- Salvar estados atômicos e o latente a cada passo, para retomar sem perder trabalho.
+- O Turbo amostra em 8 passos sem CFG, cerca de 4× mais rápido que o Edit com guidance.
